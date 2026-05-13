@@ -1,0 +1,223 @@
+// Offline-first sync service (Phase 1 wired)
+
+const QUEUE_KEY = 'fm_pending_changes_v1';
+
+// TODO: move to env vars in build system
+const SUPABASE_URL = 'https://nyamrcwprsxbdooewidv.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_EHhbmAvVmmZ53DeO0uJPZA_YII0usRx';
+
+export function isOnline() {
+  if (typeof navigator === 'undefined') return true;
+  return navigator.onLine;
+}
+
+export function loadQueue() {
+  try {
+    return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+export function saveQueue(queue) {
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(queue || []));
+}
+
+export function enqueueChange(change) {
+  const queue = loadQueue();
+  queue.push({
+    id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    attempts: 0,
+    lastError: null,
+    ...change
+  });
+  saveQueue(queue);
+  return queue;
+}
+
+async function sbRequest(path, { method = 'GET', body } = {}) {
+  const res = await fetch(`${SUPABASE_URL}${path}`, {
+    method,
+    headers: {
+      'apikey': SUPABASE_PUBLISHABLE_KEY,
+      'Authorization': `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal,resolution=merge-duplicates'
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Supabase ${res.status}: ${txt}`);
+  }
+}
+
+async function applyRemote(item) {
+  if (item.entity === 'measurement' && item.op === 'upsert') {
+    const m = item.payload;
+    const payloadTs = new Date(m?.savedAt || 0).getTime() || Date.now();
+
+    // Guard against stale queue overwrites: if cloud is newer, skip this local write.
+    try {
+      const existingRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs?select=id,updated_at&id=eq.${encodeURIComponent(m.id)}&limit=1`, {
+        headers: {
+          'apikey': SUPABASE_PUBLISHABLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (existingRes.ok) {
+        const rows = await existingRes.json();
+        const cloudTs = new Date(rows?.[0]?.updated_at || 0).getTime() || 0;
+        if (cloudTs > payloadTs) {
+          return; // keep newer cloud copy
+        }
+      }
+    } catch {
+      // if guard check fails, proceed with best effort write
+    }
+
+    const writeTs = new Date(payloadTs).toISOString();
+
+    await sbRequest('/rest/v1/jobs?on_conflict=id', {
+      method: 'POST',
+      body: [{
+        id: m.id,
+        job_name: m.job?.jobName || '',
+        address: m.job?.address || '',
+        measure_date: m.job?.measureDate || '',
+        measured_by: m.job?.measuredBy || '',
+        on_site_contact: m.job?.onSiteContact || '',
+        updated_at: writeTs
+      }]
+    });
+
+    // replace openings for this measurement
+    await sbRequest(`/rest/v1/openings?job_id=eq.${encodeURIComponent(m.id)}`, { method: 'DELETE' });
+
+    const openingRows = (m.openings || []).map((o, idx) => ({
+      id: `${m.id}_${idx + 1}`,
+      job_id: m.id,
+      payload: o,
+      updated_at: writeTs
+    }));
+
+    if (openingRows.length) {
+      await sbRequest('/rest/v1/openings?on_conflict=id', { method: 'POST', body: openingRows });
+    }
+    return;
+  }
+
+  if (item.entity === 'measurement' && item.op === 'delete') {
+    const id = item.entityId;
+    await sbRequest(`/rest/v1/openings?job_id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await sbRequest(`/rest/v1/jobs?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' });
+    return;
+  }
+
+  throw new Error(`Unsupported sync item: ${item.entity}/${item.op}`);
+}
+
+export async function flushQueue() {
+  const queue = loadQueue();
+  if (!queue.length) return { ok: true, flushed: 0, remaining: 0 };
+  const next = [];
+  let flushed = 0;
+
+  for (const item of queue) {
+    try {
+      await applyRemote(item);
+      flushed += 1;
+    } catch (e) {
+      next.push({ ...item, attempts: (item.attempts || 0) + 1, lastError: String(e?.message || e) });
+    }
+  }
+
+  saveQueue(next);
+  return { ok: next.length === 0, flushed, remaining: next.length };
+}
+
+export async function fetchRemoteMeasurements() {
+  const jobsRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs?select=*&order=updated_at.desc`, {
+    headers: {
+      'apikey': SUPABASE_PUBLISHABLE_KEY,
+      'Authorization': `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!jobsRes.ok) {
+    throw new Error(`Supabase jobs ${jobsRes.status}: ${await jobsRes.text()}`);
+  }
+
+  const jobs = await jobsRes.json();
+  if (!jobs.length) return [];
+
+  const openingsRes = await fetch(`${SUPABASE_URL}/rest/v1/openings?select=job_id,payload,updated_at`, {
+    headers: {
+      'apikey': SUPABASE_PUBLISHABLE_KEY,
+      'Authorization': `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!openingsRes.ok) {
+    throw new Error(`Supabase openings ${openingsRes.status}: ${await openingsRes.text()}`);
+  }
+
+  const openingRows = await openingsRes.json();
+  const byJob = openingRows.reduce((acc, row) => {
+    const id = row.job_id;
+    if (!acc[id]) acc[id] = [];
+    acc[id].push(row.payload || {});
+    return acc;
+  }, {});
+
+  return jobs.map(j => {
+    const openings = byJob[j.id] || [];
+    const total = openings.reduce((sum, o) => {
+      const n = Number(o?.qty);
+      return sum + (Number.isFinite(n) && n > 0 ? n : 1);
+    }, 0);
+    const windows = openings
+      .filter(o => (o?.openingType || '').toLowerCase().includes('window'))
+      .reduce((sum, o) => sum + (Number(o?.qty) > 0 ? Number(o.qty) : 1), 0);
+    const doors = openings
+      .filter(o => {
+        const t = (o?.openingType || '').toLowerCase();
+        return t.includes('door') || t.includes('slider') || t.includes('bi-fold') || t.includes('bifold') || t.includes('multi-slide');
+      })
+      .reduce((sum, o) => sum + (Number(o?.qty) > 0 ? Number(o.qty) : 1), 0);
+
+    return {
+      id: j.id,
+      savedAt: j.updated_at || new Date().toISOString(),
+      job: {
+        jobName: j.job_name || '',
+        address: j.address || '',
+        measureDate: j.measure_date || '',
+        measuredBy: j.measured_by || '',
+        onSiteContact: j.on_site_contact || ''
+      },
+      openings,
+      counts: { windows, doors, total }
+    };
+  });
+}
+
+export function mergeMeasurements(localItems = [], remoteItems = []) {
+  const byId = new Map();
+  [...localItems, ...remoteItems].forEach(item => {
+    const prev = byId.get(item.id);
+    if (!prev) {
+      byId.set(item.id, item);
+      return;
+    }
+    const prevTs = new Date(prev.savedAt || 0).getTime();
+    const nextTs = new Date(item.savedAt || 0).getTime();
+    if (nextTs >= prevTs) byId.set(item.id, item);
+  });
+
+  return Array.from(byId.values()).sort((a, b) => new Date(b.savedAt || 0) - new Date(a.savedAt || 0));
+}
