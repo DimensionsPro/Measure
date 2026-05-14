@@ -16,7 +16,7 @@ const WINDOW_SUBTYPES = ['DH', 'SH', 'Casement', 'Slider', 'Picture Window', 'Aw
 const SKYLIGHT_SUBTYPES = ['Deck mount', 'Curb mount'];
 const SKYLIGHT_CURB_MEAS_TYPES = ['Outside curb dimensions', 'Inside curb dimensions', 'Make size'];
 const SKYLIGHT_PITCH_OPTIONS = ['Flat', '2:12', '3:12', '4:12', '5:12', '6:12', '7:12', '8:12', '9:12', '10:12', '12:12'];
-const APP_LOGO = { uri: 'https://raw.githubusercontent.com/DimensionsPro/Measure/main/app/assets/images/logo-pro-horizontal.png' };
+const APP_LOGO = require('./app/assets/images/logo-pro-horizontal.png');
 const BRAND = {
   orange: '#FF6B00',
   cyan: '#00BFFF',
