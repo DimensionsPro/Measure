@@ -2,9 +2,9 @@
 
 const QUEUE_KEY = 'fm_pending_changes_v1';
 
-// TODO: move to env vars in build system
-const SUPABASE_URL = 'https://nyamrcwprsxbdooewidv.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_EHhbmAvVmmZ53DeO0uJPZA_YII0usRx';
+// Initialize Supabase configuration from Env Vars with hardcoded fallbacks
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://nyamrcwprsxbdooewidv.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_EHhbmAvVmmZ53DeO0uJPZA_YII0usRx';
 
 export function isOnline() {
   if (typeof navigator === 'undefined') return true;
