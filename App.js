@@ -139,13 +139,13 @@ const qtyOf = (o) => {
     const n = Number(o?.qty);
     return Number.isFinite(n) && n > 0 ? n : 1;
   };
- '').toLowerCase().includes('window'));
+  const isWindowType = (o) => ((o?.openingType || '').toLowerCase().includes('window'));
   const isDoorType = (o) => {
- '').toLowerCase();
- t.includes('multi-slide');
+    const t = (o?.openingType || '').toLowerCase();
+    return t.includes('door') || t.includes('slider') || t.includes('bi-fold') || t.includes('bifold') || t.includes('multi-slide');
   };
- '').toLowerCase().includes('skylight'));
-const buildCounts = (list = []) => ({
+  const isSkylightType = (o) => ((o?.openingType || '').toLowerCase().includes('skylight'));
+
     windows: list.filter(isWindowType).reduce((sum, x) => sum + qtyOf(x), 0),
     doors: list.filter(isDoorType).reduce((sum, x) => sum + qtyOf(x), 0),
     skylights: list.filter(isSkylightType).reduce((sum, x) => sum + qtyOf(x), 0),
