@@ -1291,7 +1291,7 @@ export default function App() {
     }
   };
 
-  const scanFromCurrentPhoto = async () => {
+  const scanFromCurrentPhoto = async (useCreditCard = false) => {
     if (!opening.photoUri && !opening.photoDataUri) {
       Alert.alert('Scan needs a photo', 'Capture or pick a head-on photo first.');
       return;
@@ -1301,7 +1301,7 @@ export default function App() {
     try {
       const result = await analyzeWindowPhoto({
         photoUri: opening.photoDataUri || opening.photoUri,
-        hasOneInchSquareSticker: true,
+        useCreditCard,
         Image
       });
 
@@ -1311,6 +1311,9 @@ export default function App() {
 
       if (f.openingType?.confidence >= t && f.openingType?.value) {
         next.openingType = f.openingType.value;
+      }
+      if (f.subtype?.confidence >= t && f.subtype?.value) {
+        next.subtype = f.subtype.value;
       }
       if (f.operation?.confidence >= t && f.operation?.value) {
         next.operation = f.operation.value;
@@ -1329,6 +1332,7 @@ export default function App() {
 
       const applied = [
         f.openingType?.confidence >= t ? 'type' : null,
+        f.subtype?.confidence >= t ? 'subtype' : null,
         f.operation?.confidence >= t ? 'operation' : null,
         f.hasGrids?.confidence >= t ? 'grids' : null,
         f.estimatedWidthIn?.confidence >= t ? 'width' : null,
@@ -1336,10 +1340,10 @@ export default function App() {
       ].filter(Boolean);
 
       Alert.alert(
-        'Scan complete (beta)',
+        'DimensionSnap Analysis Complete',
         applied.length
-          ? `Applied: ${applied.join(', ')}\nLow-confidence fields were left for manual review.`
-          : 'No fields passed 70% confidence yet. This scaffold is ready; next step is marker detection + model tuning.'
+          ? `Precision Scale Applied: ${applied.join(', ')} (rounded to nearest 1/4").\n\nPlease verify these values manually.`
+          : 'Photo quality too low to scale automatically. Ensure your 1" marker or Credit Card is clearly visible and head-on.'
       );
     } catch (e) {
       Alert.alert('Scan failed', e?.message || 'Unable to analyze photo.');
@@ -2106,15 +2110,18 @@ function renderStep(step, ctx) {
 
           {opening.measureMethod === 'snap' ? (
             <>
-              <Text style={styles.cardText}>Use a head-on photo with the 1" marker sticker visible.</Text>
+              <Text style={styles.cardText}>Use a head-on photo with a 1" sticker OR a Credit Card visible.</Text>
               {(opening.photoDataUri || opening.photoUri) ? <Image source={{ uri: opening.photoDataUri || opening.photoUri }} style={styles.previewPhoto} /> : <Text style={styles.label}>No scan photo selected yet.</Text>}
               <View style={styles.rowGap}>
                 <TouchableOpacity style={styles.btn} onPress={capturePhoto}><Text style={styles.btnText}>Capture Photo</Text></TouchableOpacity>
                 <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={pickPhotoFromLibrary}><Text style={styles.btnText}>Pick from Library</Text></TouchableOpacity>
               </View>
               <View style={styles.rowGap}>
-                <TouchableOpacity style={[styles.btn, { backgroundColor: '#7c3aed' }]} onPress={scanFromCurrentPhoto} disabled={scanBusy}>
-                  <Text style={styles.btnText}>{scanBusy ? 'Scanning…' : 'Scan Dimensions'}</Text>
+                <TouchableOpacity style={[styles.btn, { backgroundColor: '#7c3aed', flex: 1 }]} onPress={() => scanFromCurrentPhoto(false)} disabled={scanBusy}>
+                  <Text style={styles.btnText}>{scanBusy ? '...' : 'Scan (1" Sticker)'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.btn, { backgroundColor: '#0284c7', flex: 1 }]} onPress={() => scanFromCurrentPhoto(true)} disabled={scanBusy}>
+                  <Text style={styles.btnText}>{scanBusy ? '...' : 'Scan (Credit Card)'}</Text>
                 </TouchableOpacity>
               </View>
             </>

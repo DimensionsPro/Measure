@@ -122,17 +122,19 @@ async function applyRemote(item) {
 export async function flushQueue() {
   const queue = loadQueue();
   if (!queue.length) return { ok: true, flushed: 0, remaining: 0 };
-  const next = [];
-  let flushed = 0;
-
-  for (const item of queue) {
+  
+  const results = await Promise.all(queue.map(async (item) => {
     try {
       await applyRemote(item);
-      flushed += 1;
+      return { success: true, item };
     } catch (e) {
-      next.push({ ...item, attempts: (item.attempts || 0) + 1, lastError: String(e?.message || e) });
+      console.error('Sync failed for item', item.id, e);
+      return { success: false, item: { ...item, attempts: (item.attempts || 0) + 1, lastError: String(e?.message || e) } };
     }
-  }
+  }));
+
+  const next = results.filter(r => !r.success).map(r => r.item);
+  const flushed = results.filter(r => r.success).length;
 
   saveQueue(next);
   return { ok: next.length === 0, flushed, remaining: next.length };
@@ -208,15 +210,34 @@ export async function fetchRemoteMeasurements() {
 
 export function mergeMeasurements(localItems = [], remoteItems = []) {
   const byId = new Map();
-  [...localItems, ...remoteItems].forEach(item => {
-    const prev = byId.get(item.id);
-    if (!prev) {
+  
+  // Sort by savedAt ascending so that later items (newer) overwrite earlier ones in the Map
+  const allItems = [...localItems, ...remoteItems].sort((a, b) => 
+    new Date(a.savedAt || 0).getTime() - new Date(b.savedAt || 0).getTime()
+  );
+
+  allItems.forEach(item => {
+    if (!item || !item.id) return;
+    
+    const existing = byId.get(item.id);
+    if (!existing) {
       byId.set(item.id, item);
       return;
     }
-    const prevTs = new Date(prev.savedAt || 0).getTime();
-    const nextTs = new Date(item.savedAt || 0).getTime();
-    if (nextTs >= prevTs) byId.set(item.id, item);
+
+    const existingTs = new Date(existing.savedAt || 0).getTime();
+    const incomingTs = new Date(item.savedAt || 0).getTime();
+
+    // Tie-breaker: Prefer item with more openings if timestamps are identical
+    if (incomingTs > existingTs) {
+      byId.set(item.id, item);
+    } else if (incomingTs === existingTs) {
+      const existingCount = existing.openings?.length || 0;
+      const incomingCount = item.openings?.length || 0;
+      if (incomingCount > existingCount) {
+        byId.set(item.id, item);
+      }
+    }
   });
 
   return Array.from(byId.values()).sort((a, b) => new Date(b.savedAt || 0) - new Date(a.savedAt || 0));
