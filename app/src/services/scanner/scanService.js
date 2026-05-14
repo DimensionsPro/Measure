@@ -44,16 +44,23 @@ function getImageSizeAsync(uri, Image) {
  * Refined logic for DH, SH, Slider, Casement, Fixed.
  */
 function classifyWindowType(aspect, hasHorizontalSplit, hasVerticalSplit) {
+  // Ultra-Wide (LaCantina / Multi-Slide territory)
+  if (aspect > 2.2) return { type: 'Multi-Slide/Bi-Fold', confidence: 0.90 };
+  
   if (aspect > 1.3) return { type: 'Slider', confidence: 0.85 };
+  
   if (aspect < 0.75) {
-    if (hasHorizontalSplit) return { type: 'SH', confidence: 0.82 }; // Single Hung default
+    if (hasHorizontalSplit) return { type: 'Single Hung', confidence: 0.82 };
     return { type: 'Casement', confidence: 0.78 };
   }
-  if (aspect >= 0.75 && aspect <= 1.2) {
-    if (hasHorizontalSplit) return { type: 'DH', confidence: 0.80 };
-    return { type: 'Picture Window', confidence: 0.75 };
+  
+  if (aspect >= 0.75 && aspect <= 1.25) {
+    if (hasHorizontalSplit) return { type: 'Double Hung', confidence: 0.80 };
+    if (hasVerticalSplit) return { type: 'Mullioned Fixed', confidence: 0.75 };
+    return { type: 'Picture/Fixed', confidence: 0.85 };
   }
-  return { type: 'Fixed', confidence: 0.60 };
+  
+  return { type: 'Other/Custom', confidence: 0.50 };
 }
 
 export async function analyzeWindowPhoto({ photoUri, useCreditCard = false, Image }) {
