@@ -6,7 +6,7 @@ const QUEUE_KEY = 'fm_pending_changes_v1';
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://nyamrcwprsxbdooewidv.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_EHhbmAvVmmZ53DeO0uJPZA_YII0usRx';
 
-const AUTH_STORAGE_KEY = 'dimens...h_v1';
+const AUTH_STORAGE_KEY = 'dimensions_pro_auth_v1';
 
 function getAuthToken() {
   try {
