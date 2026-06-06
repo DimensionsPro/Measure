@@ -23,7 +23,7 @@ const BRAND = {
   dark: '#121212',
   gray: '#2A2A2A'
 };
-const LOCAL_AUTH_KEY = 'dimensions_local_auth_v1';
+const LOCAL_AUTH_KEY = 'dimensions_pro_auth_v1';
 
 const steps = [
   'Job Information',
