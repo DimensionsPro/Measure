@@ -6,6 +6,21 @@ const QUEUE_KEY = 'fm_pending_changes_v1';
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://nyamrcwprsxbdooewidv.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_EHhbmAvVmmZ53DeO0uJPZA_YII0usRx';
 
+const AUTH_STORAGE_KEY = 'dimens...h_v1';
+
+function getAuthToken() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return parsed.token || null;
+    }
+  } catch (e) {
+    console.error('Failed to read auth token', e);
+  }
+  return null;
+}
+
 export function isOnline() {
   if (typeof navigator === 'undefined') return true;
   return navigator.onLine;
@@ -35,14 +50,18 @@ export function enqueueChange(change) {
   return queue;
 }
 
-async function sbRequest(path, { method = 'GET', body } = {}) {
+async function sbRequest(path, { method = 'GET', body, headers: customHeaders } = {}) {
+  const token = getAuthToken();
+  const authHeader = token ? `Bearer ${token}` : `Bearer ${SUPABASE_PUBLISHABLE_KEY}`;
+  
   const res = await fetch(`${SUPABASE_URL}${path}`, {
     method,
     headers: {
       'apikey': SUPABASE_PUBLISHABLE_KEY,
-      'Authorization': `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+      'Authorization': authHeader,
       'Content-Type': 'application/json',
-      'Prefer': 'return=minimal,resolution=merge-duplicates'
+      'Prefer': 'return=minimal,resolution=merge-duplicates',
+      ...customHeaders
     },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -60,10 +79,12 @@ async function applyRemote(item) {
 
     // Guard against stale queue overwrites: if cloud is newer, skip this local write.
     try {
+      const token = getAuthToken();
+      const authHeader = token ? `Bearer ${token}` : `Bearer ${SUPABASE_PUBLISHABLE_KEY}`;
       const existingRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs?select=id,updated_at&id=eq.${encodeURIComponent(m.id)}&limit=1`, {
         headers: {
           'apikey': SUPABASE_PUBLISHABLE_KEY,
-          'Authorization': `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+          'Authorization': authHeader,
           'Content-Type': 'application/json'
         }
       });
@@ -93,9 +114,8 @@ async function applyRemote(item) {
       }]
     });
 
-    // replace openings for this measurement
-    await sbRequest(`/rest/v1/openings?job_id=eq.${encodeURIComponent(m.id)}`, { method: 'DELETE' });
-
+    // Atomic Upsert: Supabase will handle the conflict based on ID, 
+    // removing the need for a destructive DELETE.
     const openingRows = (m.openings || []).map((o, idx) => ({
       id: `${m.id}_${idx + 1}`,
       job_id: m.id,
@@ -104,7 +124,12 @@ async function applyRemote(item) {
     }));
 
     if (openingRows.length) {
-      await sbRequest('/rest/v1/openings?on_conflict=id', { method: 'POST', body: openingRows });
+      // Use upsert-capable POST or a specific upsert endpoint if available
+      await sbRequest('/rest/v1/openings?on_conflict=id', { 
+        method: 'POST', 
+        body: openingRows,
+        headers: { 'Prefer': 'resolution=merge-duplicates' } 
+      });
     }
     return;
   }
@@ -141,10 +166,13 @@ export async function flushQueue() {
 }
 
 export async function fetchRemoteMeasurements() {
+  const token = getAuthToken();
+  const authHeader = token ? `Bearer ${token}` : `Bearer ${SUPABASE_PUBLISHABLE_KEY}`;
+  
   const jobsRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs?select=*&order=updated_at.desc`, {
     headers: {
       'apikey': SUPABASE_PUBLISHABLE_KEY,
-      'Authorization': `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+      'Authorization': authHeader,
       'Content-Type': 'application/json'
     }
   });
@@ -159,7 +187,7 @@ export async function fetchRemoteMeasurements() {
   const openingsRes = await fetch(`${SUPABASE_URL}/rest/v1/openings?select=job_id,payload,updated_at`, {
     headers: {
       'apikey': SUPABASE_PUBLISHABLE_KEY,
-      'Authorization': `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+      'Authorization': authHeader,
       'Content-Type': 'application/json'
     }
   });

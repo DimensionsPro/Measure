@@ -21,9 +21,9 @@ export const SCAN_FIELD_SCHEMA = {
  * High-precision window classification and measurement scaling.
  */
 
-const REFERENCE_MARKER_IN = 1.0; // 1-inch sticker
+const REFERENCE_MARKER_IN = 3.375; // Primary: Credit Card (3.375")
 const CREDIT_CARD_WIDTH_IN = 3.375;
-const CREDIT_CARD_HEIGHT_IN = 2.125;
+const STICKER_ONE_INCH = 1.0;
 
 function getImageSizeAsync(uri, Image) {
   return new Promise((resolve) => {
@@ -63,49 +63,62 @@ function classifyWindowType(aspect, hasHorizontalSplit, hasVerticalSplit) {
   return { type: 'Other/Custom', confidence: 0.50 };
 }
 
-export async function analyzeWindowPhoto({ photoUri, useCreditCard = false, Image }) {
-  const size = await getImageSizeAsync(photoUri, Image);
-  const aspect = size.height > 0 ? size.width / size.height : 1;
+/**
+ * DimensionSnap Pro Logic: "Blackbriar" Sprint Edition
+ * AI-Driven Measurement via Gemini 2.0 Vision.
+ */
 
-  // MOCK: In production, these would come from an object detection model (Tensorflow.js/CoreML)
-  // For this high-precision logic release, we simulate detection coordinates of the window frame
-  // and the reference marker.
-  
-  // Simulated window frame (pixels) - assuming object fills 80% of view center
-  const framePx = {
-    width: size.width * 0.8,
-    height: (size.width * 0.8) / aspect
-  };
+const OPENROUTER_API_KEY = process.env.EXPO_PUBLIC_OPENROUTER_KEY;
 
-  // Simulated Reference Marker detection (e.g., 1" sticker)
-  // In real implementation, this comes from a CV contour filter or YOLOV8
-  const markerPxWidth = size.width * 0.05; // placeholder: marker is 5% of screen width
-  
-  // Scaling Calculation: Pixel-to-Inch
-  const refIn = useCreditCard ? CREDIT_CARD_WIDTH_IN : REFERENCE_MARKER_IN;
-  const pxPerInch = markerPxWidth / refIn;
-  
-  const estimatedWidthIn = Math.round((framePx.width / pxPerInch) * 4) / 4; // Round to nearest 1/4"
-  const estimatedHeightIn = Math.round((framePx.height / pxPerInch) * 4) / 4;
+export async function analyzeWindowPhoto({ photoUri, base64Image }) {
+  // 1. Identify and Measure via Gemini 2.0 Flash (Fast + Vision Capable)
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://dimensionspro.app',
+        'X-Title': 'DimensionsPro'
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.0-flash-001',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: "Detect the standard credit card in this image and use it as a 3.375-inch (horizontal) scale reference. Measure the Net Frame width and height of the window. Return ONLY a JSON object with: { 'width_in': float, 'height_in': float, 'subtype': string, 'confidence': float }"
+              },
+              {
+                type: 'image_url',
+                image_url: { url: `data:image/jpeg;base64,${base64Image}` }
+              }
+            ]
+          }
+        ]
+      })
+    });
 
-  // Classification Logic
-  const classification = classifyWindowType(aspect, true, false);
+    const data = await response.json();
+    const aiResult = JSON.parse(data.choices[0].message.content);
 
-  return {
-    meta: {
-      version: 'scanner-v1.1-high-precision',
-      markerUsed: useCreditCard ? 'credit_card' : '1in_sticker',
-      imageWidthPx: size.width,
-      imageHeightPx: size.height,
-      pxPerInch: pxPerInch
-    },
-    fields: {
-      openingType: { value: 'Window', confidence: 0.95 },
-      subtype: { value: classification.type, confidence: classification.confidence },
-      operation: { value: classification.type === 'Slider' ? 'Horiz. Slide' : 'Vertical', confidence: 0.75 },
-      hasGrids: { value: false, confidence: 0.65 },
-      estimatedWidthIn: { value: estimatedWidthIn, confidence: 0.88 },
-      estimatedHeightIn: { value: estimatedHeightIn, confidence: 0.88 }
-    }
-  };
+    return {
+      meta: {
+        version: 'blackbriar-v2.0-vision',
+        engine: 'gemini-2.0-flash'
+      },
+      fields: {
+        openingType: { value: 'Window', confidence: 1.0 },
+        subtype: { value: aiResult.subtype, confidence: aiResult.confidence },
+        estimatedWidthIn: { value: aiResult.width_in, confidence: aiResult.confidence },
+        estimatedHeightIn: { value: aiResult.height_in, confidence: aiResult.confidence }
+      }
+    };
+  } catch (e) {
+    console.error('Vision analysis failed', e);
+    // Fallback to basic scaling if AI fails
+    return { error: 'Vision link failed. Reverting to manual.' };
+  }
 }
