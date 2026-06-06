@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Measuremnt",
-    "slug": "lion-field-measure",
+  "name": "DimensionsPro",
+  "slug": "dimensionspro-measure",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./app/assets/measure-icon-square.png",
@@ -9,8 +9,8 @@
     "assetBundlePatterns": ["**/*"],
     "platforms": ["ios", "android", "web"],
     "web": {
-      "name": "Measuremnt",
-      "shortName": "Measuremnt",
+      "name": "DimensionsPro",
+      "shortName": "DimensionsPro",
       "favicon": "./app/assets/measure-icon-square.png"
     }
   }
