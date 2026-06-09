@@ -4,7 +4,7 @@
 export const SCAN_FIELD_SCHEMA = {
   requiredInput: [
     'photoUri',
-    'hasOneInchSquareSticker'
+    'scaleReference'
   ],
   outputFields: [
     'openingType',
@@ -70,7 +70,37 @@ function classifyWindowType(aspect, hasHorizontalSplit, hasVerticalSplit) {
 
 const OPENROUTER_API_KEY = process.env.EXPO_PUBLIC_OPENROUTER_KEY;
 
-export async function analyzeWindowPhoto({ photoUri, base64Image }) {
+function normalizeImageUrl({ photoUri, base64Image }) {
+  const raw = base64Image || photoUri || '';
+  if (!raw) return '';
+  if (raw.startsWith('data:image/')) return raw;
+  return `data:image/jpeg;base64,${raw}`;
+}
+
+function extractJsonObject(text = '') {
+  const cleaned = String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error('Scanner did not return JSON.');
+  }
+  return JSON.parse(cleaned.slice(start, end + 1));
+}
+
+export async function analyzeWindowPhoto({ photoUri, base64Image, useCreditCard = true }) {
+  const imageUrl = normalizeImageUrl({ photoUri, base64Image });
+  if (!imageUrl) {
+    throw new Error('No photo data was available for scanning.');
+  }
+
+  if (!OPENROUTER_API_KEY) {
+    throw new Error('Missing EXPO_PUBLIC_OPENROUTER_KEY. Add it to your environment before scanning.');
+  }
+
+  const referenceText = useCreditCard
+    ? 'Detect the standard credit card in this image and use it as a 3.375-inch horizontal scale reference.'
+    : 'Detect the 1-inch square sticker/marker in this image and use it as the scale reference.';
+
   // 1. Identify and Measure via Gemini 2.0 Flash (Fast + Vision Capable)
   try {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -89,11 +119,11 @@ export async function analyzeWindowPhoto({ photoUri, base64Image }) {
             content: [
               {
                 type: 'text',
-                text: "Detect the standard credit card in this image and use it as a 3.375-inch (horizontal) scale reference. Measure the Net Frame width and height of the window. Return ONLY a JSON object with: { 'width_in': float, 'height_in': float, 'subtype': string, 'confidence': float }"
+                text: `${referenceText} Measure the Net Frame width and height of the window. Return ONLY a valid JSON object with double-quoted keys: { "width_in": number, "height_in": number, "subtype": string, "confidence": number }.`
               },
               {
                 type: 'image_url',
-                image_url: { url: `data:image/jpeg;base64,${base64Image}` }
+                image_url: { url: imageUrl }
               }
             ]
           }
@@ -101,8 +131,15 @@ export async function analyzeWindowPhoto({ photoUri, base64Image }) {
       })
     });
 
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(`Scanner request failed: ${response.status} ${message}`);
+    }
+
     const data = await response.json();
-    const aiResult = JSON.parse(data.choices[0].message.content);
+    const content = data?.choices?.[0]?.message?.content;
+    const aiResult = extractJsonObject(content);
+    const confidence = Number(aiResult.confidence);
 
     return {
       meta: {
@@ -111,14 +148,13 @@ export async function analyzeWindowPhoto({ photoUri, base64Image }) {
       },
       fields: {
         openingType: { value: 'Window', confidence: 1.0 },
-        subtype: { value: aiResult.subtype, confidence: aiResult.confidence },
-        estimatedWidthIn: { value: aiResult.width_in, confidence: aiResult.confidence },
-        estimatedHeightIn: { value: aiResult.height_in, confidence: aiResult.confidence }
+        subtype: { value: aiResult.subtype || 'Other', confidence },
+        estimatedWidthIn: { value: Number(aiResult.width_in), confidence },
+        estimatedHeightIn: { value: Number(aiResult.height_in), confidence }
       }
     };
   } catch (e) {
     console.error('Vision analysis failed', e);
-    // Fallback to basic scaling if AI fails
-    return { error: 'Vision link failed. Reverting to manual.' };
+    throw new Error(e?.message || 'Vision link failed. Reverting to manual.');
   }
 }
