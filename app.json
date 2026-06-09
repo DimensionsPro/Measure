@@ -1,17 +1,38 @@
 {
   "expo": {
-  "name": "DimensionsPro",
-  "slug": "dimensionspro-measure",
+    "name": "DimensionsPro",
+    "slug": "dimensionspro-measure",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./app/assets/measure-icon-square.png",
-    "plugins": ["expo-asset"],
-    "assetBundlePatterns": ["**/*"],
-    "platforms": ["ios", "android", "web"],
+    "plugins": [
+      "expo-asset"
+    ],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
     "web": {
       "name": "DimensionsPro",
       "shortName": "DimensionsPro",
       "favicon": "./app/assets/measure-icon-square.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "2a9656b9-5120-4090-b39f-3e466ede9a53"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/2a9656b9-5120-4090-b39f-3e466ede9a53"
+    },
+    "android": {},
+    "ios": {}
   }
 }
