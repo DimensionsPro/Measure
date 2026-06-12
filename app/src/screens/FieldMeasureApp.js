@@ -23,6 +23,8 @@ const BRAND = {
   dark: '#121212',
   gray: '#2A2A2A'
 };
+const PASSWORD_EYE_ICON = require('../../assets/images/password-eye.svg');
+const PASSWORD_EYE_OFF_ICON = require('../../assets/images/password-eye-off.svg');
 const LOCAL_AUTH_KEY = 'dimensions_pro_auth_v1';
 
 const steps = [
@@ -133,6 +135,8 @@ export default function App() {
   const [authUser, setAuthUser] = useState(null);
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [stayLoggedIn, setStayLoggedIn] = useState(true);
   const [loginError, setLoginError] = useState('');
   const [scanBusy, setScanBusy] = useState(false);
 
@@ -441,6 +445,7 @@ export default function App() {
           const parsed = JSON.parse(raw);
           if (parsed?.username) {
             setAuthUser({ email: parsed.username });
+            setStayLoggedIn(true);
           }
         }
       }
@@ -1656,14 +1661,31 @@ export default function App() {
             value={loginUsername}
             onChangeText={setLoginUsername}
           />
-          <TextInput
-            style={[styles.input, { width: '100%' }]}
-            placeholder="Password"
-            placeholderTextColor="#94a3b8"
-            secureTextEntry
-            value={loginPassword}
-            onChangeText={setLoginPassword}
-          />
+          <View style={styles.passwordInputWrap}>
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="Password"
+              placeholderTextColor="#94a3b8"
+              secureTextEntry={!showPassword}
+              value={loginPassword}
+              onChangeText={setLoginPassword}
+            />
+            <TouchableOpacity
+              style={styles.passwordEyeButton}
+              onPress={() => setShowPassword(prev => !prev)}
+              accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+              activeOpacity={0.75}
+            >
+              <Image source={showPassword ? PASSWORD_EYE_ICON : PASSWORD_EYE_OFF_ICON} style={styles.passwordEyeIconImage} resizeMode="contain" />
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity style={styles.stayLoggedInRow} onPress={() => setStayLoggedIn(prev => !prev)} activeOpacity={0.8}>
+            <View style={[styles.checkboxBox, stayLoggedIn ? styles.checkboxBoxOn : null]}>
+              {stayLoggedIn ? <Text style={styles.checkboxCheck}>✓</Text> : null}
+            </View>
+            <Text style={styles.stayLoggedInText}>Stay logged in</Text>
+          </TouchableOpacity>
 
           <TouchableOpacity style={styles.loginBtnCompact} onPress={() => {
             const validUser = loginUsername.trim().toLowerCase() === 'dimensions';
@@ -1676,9 +1698,14 @@ export default function App() {
             setLoginError('');
             try {
               if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
-                localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify({ username: 'dimensions' }));
+                if (stayLoggedIn) {
+                  localStorage.setItem(LOCAL_AUTH_KEY, JSON.stringify({ username: 'dimensions' }));
+                } else {
+                  localStorage.removeItem(LOCAL_AUTH_KEY);
+                }
               }
             } catch {}
+            setShowPassword(false);
             setAuthUser({ email: 'dimensions' });
           }}>
             <Text style={styles.btnText}>Log In</Text>
@@ -1743,6 +1770,7 @@ export default function App() {
                 } catch {}
                 setAuthUser(null);
                 setLoginPassword('');
+                setShowPassword(false);
               }}>
                 <Text style={styles.authSignOutText}>Sign out</Text>
               </TouchableOpacity>
@@ -1751,21 +1779,15 @@ export default function App() {
           <Image source={APP_LOGO} style={styles.logoLarge} resizeMode="contain" />
           <Text style={styles.h1}>DimensionsPro</Text>
           {showSyncBanner ? <Text style={[styles.errorText, { color: syncState === 'error' ? '#fca5a5' : '#fbbf24' }]}>{syncBannerText}</Text> : null}
-          <TouchableOpacity style={[styles.btn, { backgroundColor: 'BRAND.orange' }]} onPress={startNewMeasurement}>
-            <Text style={styles.btnText}>+ Add New Measurement</Text>
+          <TouchableOpacity style={styles.homePrimaryAction} onPress={startNewMeasurement} activeOpacity={0.86}>
+            <View style={styles.homePrimaryActionIcon}>
+              <Text style={styles.homePrimaryActionIconText}>+</Text>
+            </View>
+            <View style={styles.homePrimaryActionCopy}>
+              <Text style={styles.homePrimaryActionText}>New Measurement</Text>
+              <Text style={styles.homePrimaryActionSubtext}>Start a new job</Text>
+            </View>
           </TouchableOpacity>
-
-          <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: '#334155' }]} onPress={exportBackupJson}>
-              <Text style={styles.btnText}>Export Backup</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: '#475569' }]} onPress={importBackupJson}>
-              <Text style={styles.btnText}>Import Backup</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: '#64748b' }]} onPress={importBackupFromClipboard}>
-              <Text style={styles.btnText}>Import from Clipboard</Text>
-            </TouchableOpacity>
-          </View>
 
           <Text style={styles.section}>Recent Measurements ({savedJobs.length + (draftData ? 1 : 0)})</Text>
           <Input label="Search by project name or address" value={archiveQuery} onChangeText={setArchiveQuery} placeholder="Search..." />
@@ -2545,6 +2567,15 @@ const styles = StyleSheet.create({
   authSignOutBtn: { backgroundColor: '#334155', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6 },
   authSignOutText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   loginBtnCompact: { backgroundColor: '#2563eb', alignSelf: 'center', borderRadius: 10, paddingHorizontal: 28, paddingVertical: 10, minWidth: 132, marginTop: 6 },
+  passwordInputWrap: { width: '100%', flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', borderRadius: 8, borderWidth: 1, borderColor: '#334155' },
+  passwordInput: { flex: 1, color: 'white', padding: 10, paddingRight: 8 },
+  passwordEyeButton: { width: 54, height: 42, alignItems: 'center', justifyContent: 'center' },
+  passwordEyeIconImage: { width: 30, height: 30 },
+  stayLoggedInRow: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, marginBottom: 2 },
+  checkboxBox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1, borderColor: '#64748b', alignItems: 'center', justifyContent: 'center', backgroundColor: '#1e293b' },
+  checkboxBoxOn: { backgroundColor: BRAND.orange, borderColor: BRAND.orange },
+  checkboxCheck: { color: '#fff', fontSize: 14, fontWeight: '900', lineHeight: 16 },
+  stayLoggedInText: { color: '#cbd5e1', fontSize: 13, fontWeight: '700' },
   editBadge: { color: '#fbbf24', textAlign: 'center', marginBottom: 6, fontWeight: '700' },
   progress: { color: '#93c5fd', marginBottom: 8 },
   stepTitle: { color: 'white', fontSize: 16, fontWeight: '700', marginBottom: 12 },
@@ -2587,6 +2618,31 @@ const styles = StyleSheet.create({
   btnGhost: { backgroundColor: '#334155' },
   btnSaveExit: { backgroundColor: '#f59e0b' },
   btnText: { color: 'white', fontWeight: '700', textAlign: 'center' },
+  homePrimaryAction: {
+    width: '100%',
+    maxWidth: 360,
+    alignSelf: 'center',
+    backgroundColor: BRAND.orange,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#fb923c',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginTop: 12,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 5 }
+  },
+  homePrimaryActionIcon: { width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center', marginRight: 11 },
+  homePrimaryActionIconText: { color: '#fff', fontSize: 22, fontWeight: '900', lineHeight: 24 },
+  homePrimaryActionCopy: { alignItems: 'flex-start' },
+  homePrimaryActionText: { color: '#fff', fontSize: 17, fontWeight: '900', lineHeight: 20 },
+  homePrimaryActionSubtext: { color: '#fff7ed', fontSize: 12, fontWeight: '700', marginTop: 1 },
   card: { backgroundColor: '#1e293b', borderColor: '#334155', borderWidth: 1, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 6, marginBottom: 6, overflow: 'visible' },
   cardTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
   cardTitle: { color: 'white', fontWeight: '700', marginBottom: 1, fontSize: 15, lineHeight: 18 },
