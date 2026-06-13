@@ -1,15 +1,25 @@
 // Offline-first sync service (Phase 1 wired)
 
+import { Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system';
+
 const QUEUE_KEY = 'fm_pending_changes_v1';
+const QUEUE_FILE_PATH = `${FileSystem.documentDirectory || ''}field_measure_pending_queue.json`;
 
 // Initialize Supabase configuration from Env Vars with hardcoded fallbacks
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://nyamrcwprsxbdooewidv.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_EHhbmAvVmmZ53DeO0uJPZA_YII0usRx';
 
 const AUTH_STORAGE_KEY = 'dimensions_pro_auth_v1';
+let queueCache = null;
+
+function canUseLocalStorage() {
+  return Platform.OS === 'web' && typeof localStorage !== 'undefined';
+}
 
 function getAuthToken() {
   try {
+    if (!canUseLocalStorage()) return null;
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
@@ -26,27 +36,70 @@ export function isOnline() {
   return navigator.onLine;
 }
 
-export function loadQueue() {
+async function readQueueFromDisk() {
   try {
-    return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+    const info = await FileSystem.getInfoAsync(QUEUE_FILE_PATH);
+    if (!info.exists) return [];
+    const raw = await FileSystem.readAsStringAsync(QUEUE_FILE_PATH, { encoding: FileSystem.EncodingType.UTF8 });
+    return JSON.parse(raw || '[]');
   } catch {
     return [];
   }
 }
 
-export function saveQueue(queue) {
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(queue || []));
+async function hydrateQueueCache() {
+  if (Array.isArray(queueCache)) return queueCache;
+
+  if (canUseLocalStorage()) {
+    try {
+      queueCache = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+    } catch {
+      queueCache = [];
+    }
+    return queueCache;
+  }
+
+  queueCache = await readQueueFromDisk();
+  return queueCache;
 }
 
-export function enqueueChange(change) {
-  const queue = loadQueue();
+export async function initializeSyncQueue() {
+  return hydrateQueueCache();
+}
+
+export function loadQueue() {
+  return Array.isArray(queueCache) ? queueCache : [];
+}
+
+export async function loadQueueFresh() {
+  const queue = await hydrateQueueCache();
+  return Array.isArray(queue) ? queue : [];
+}
+
+export async function saveQueue(queue) {
+  const nextQueue = Array.isArray(queue) ? queue : [];
+  queueCache = nextQueue;
+
+  if (canUseLocalStorage()) {
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(nextQueue));
+    return nextQueue;
+  }
+
+  await FileSystem.writeAsStringAsync(QUEUE_FILE_PATH, JSON.stringify(nextQueue), {
+    encoding: FileSystem.EncodingType.UTF8
+  });
+  return nextQueue;
+}
+
+export async function enqueueChange(change) {
+  const queue = await hydrateQueueCache();
   queue.push({
     id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     attempts: 0,
     lastError: null,
     ...change
   });
-  saveQueue(queue);
+  await saveQueue(queue);
   return queue;
 }
 
@@ -145,7 +198,7 @@ async function applyRemote(item) {
 }
 
 export async function flushQueue() {
-  const queue = loadQueue();
+  const queue = await hydrateQueueCache();
   if (!queue.length) return { ok: true, flushed: 0, remaining: 0 };
   
   const results = await Promise.all(queue.map(async (item) => {
@@ -161,7 +214,7 @@ export async function flushQueue() {
   const next = results.filter(r => !r.success).map(r => r.item);
   const flushed = results.filter(r => r.success).length;
 
-  saveQueue(next);
+  await saveQueue(next);
   return { ok: next.length === 0, flushed, remaining: next.length };
 }
 

@@ -6,7 +6,7 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { buildCsvFromOpenings, buildHtmlReport } from '../services/reportService';
-import { enqueueChange, flushQueue, isOnline, fetchRemoteMeasurements, mergeMeasurements, loadQueue } from '../services/sync/syncService';
+import { enqueueChange, flushQueue, isOnline, fetchRemoteMeasurements, initializeSyncQueue, loadQueueFresh } from '../services/sync/syncService';
 import { SCAN_FIELD_SCHEMA, analyzeWindowPhoto } from '../services/scanner/scanService';
 
 const INSTALL_TYPES = ['Nail fin', 'New construction', 'Retrofit block', 'Retrofit Z-bar'];
@@ -32,7 +32,6 @@ const steps = [
   'Room',
   'Measurement (W x H)',
   'Jamb thickness',
-  'Photo',
   'Net frame or rough opening',
   'Glass type',
   'Glass / Window Conditions :',
@@ -64,6 +63,9 @@ const emptyOpening = {
   configB: '',
   configC: '',
   photoUri: '',
+  photoDataUri: '',
+  extraPhotoUri: '',
+  extraPhotoDataUri: '',
   photoNote: '',
   width: '',
   height: '',
@@ -82,7 +84,7 @@ const emptyOpening = {
   existingType: '',
   operation: '',
   notes: '',
-  measureMethod: 'manual'
+  measureMethod: 'snap'
 };
 
 export default function App() {
@@ -139,6 +141,7 @@ export default function App() {
   const [stayLoggedIn, setStayLoggedIn] = useState(true);
   const [loginError, setLoginError] = useState('');
   const [scanBusy, setScanBusy] = useState(false);
+  const [measureMethodTouched, setMeasureMethodTouched] = useState(false);
 
   const latestJobRef = useRef(job);
   const latestOpeningsRef = useRef(openings);
@@ -174,7 +177,9 @@ export default function App() {
       ...o,
       // Keep compressed embedded photo for cross-device sync; drop local-only URI.
       photoDataUri: o.photoDataUri || '',
-      photoUri: ''
+      photoUri: '',
+      extraPhotoDataUri: o.extraPhotoDataUri || '',
+      extraPhotoUri: ''
     }))
   });
 
@@ -206,9 +211,9 @@ export default function App() {
   const trashKey = 'dimensions_pro_trash_v1';
   const draftKey = 'dimensions_pro_draft_v1';
 
-  const refreshPendingMeasurements = () => {
+  const refreshPendingMeasurements = async () => {
     try {
-      const queue = loadQueue() || [];
+      const queue = await loadQueueFresh();
       const ids = new Set(
         queue
           .filter(item => item?.entity === 'measurement' && item?.entityId)
@@ -228,7 +233,7 @@ export default function App() {
     if (!isOnline()) {
       setOfflineMode(true);
       setSyncState('offline');
-      refreshPendingMeasurements();
+      await refreshPendingMeasurements();
       return { ok: false, offline: true, flushed: 0, remaining: null };
     }
 
@@ -240,11 +245,11 @@ export default function App() {
         setLastCloudSyncAt(new Date().toISOString());
         setLastSyncError('');
       }
-      refreshPendingMeasurements();
+      await refreshPendingMeasurements();
       return result;
     } catch {
       setSyncState('error');
-      refreshPendingMeasurements();
+      await refreshPendingMeasurements();
       return { ok: false, offline: false, flushed: 0, remaining: null };
     }
   };
@@ -263,7 +268,7 @@ export default function App() {
 
   const stripPhotosFromMeasurement = (m) => ({
     ...m,
-    openings: (m.openings || []).map(o => ({ ...o, photoUri: '' }))
+    openings: (m.openings || []).map(o => ({ ...o, photoUri: '', extraPhotoUri: '' }))
   });
 
   const toLightArchive = (arr) => (arr || []).map(stripPhotosFromMeasurement);
@@ -308,7 +313,7 @@ export default function App() {
 
     if (expired.length) {
       for (const t of expired) {
-        enqueueChange({ entity: 'measurement', entityId: t.id, op: 'delete', payload: null });
+        await enqueueChange({ entity: 'measurement', entityId: t.id, op: 'delete', payload: null });
       }
       await syncNow();
     }
@@ -361,7 +366,7 @@ export default function App() {
 
           // Cloud-authoritative when online so all devices converge to same active stack.
           // Keep only local pending upserts (not yet uploaded) on top of remote.
-          const queue = loadQueue() || [];
+          const queue = await loadQueueFresh();
           const pendingUpserts = queue
             .filter(item => item?.entity === 'measurement' && item?.op === 'upsert' && item?.payload)
             .map(item => item.payload);
@@ -396,8 +401,8 @@ export default function App() {
       } catch {
         const lightweight = {
           ...payload,
-          opening: payload.opening ? { ...payload.opening, photoUri: '' } : payload.opening,
-          openings: (payload.openings || []).map(o => ({ ...o, photoUri: '' }))
+          opening: payload.opening ? { ...payload.opening, photoUri: '', extraPhotoUri: '' } : payload.opening,
+          openings: (payload.openings || []).map(o => ({ ...o, photoUri: '', extraPhotoUri: '' }))
         };
         localStorage.setItem(draftKey, JSON.stringify(lightweight));
       }
@@ -456,9 +461,11 @@ export default function App() {
   useEffect(() => {
     // Always start from main page on app load.
     setShowHome(true);
+    initializeSyncQueue()
+      .then(() => refreshPendingMeasurements())
+      .catch(() => {});
     loadArchive();
     loadDraft();
-    refreshPendingMeasurements();
 
     try {
       if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
@@ -533,6 +540,13 @@ export default function App() {
   }, [job, openings, measurementId, savedJobs]);
 
   useEffect(() => {
+    if (step !== 2) return;
+    if (measureMethodTouched) return;
+    if (opening.measureMethod === 'snap') return;
+    setOpening(prev => ({ ...prev, measureMethod: 'snap' }));
+  }, [step, opening.measureMethod, measureMethodTouched]);
+
+  useEffect(() => {
     if (!isSummary) return;
     if (!job.jobName || !job.address || !openings.length) return;
     const t = setTimeout(() => {
@@ -554,16 +568,18 @@ export default function App() {
     switch (step) {
       case 0: return !!job.address && !!job.jobName && isValidDateMMDDYYYY(job.measureDate);
       case 1: return !!opening.room && !!opening.openingCode && isValidQty(opening.qty) && !!buildOperation(opening);
-      case 2: return isValidMeasurement(opening.width) && isValidMeasurement(opening.height);
+      case 2:
+        return opening.measureMethod === 'manual'
+          ? (isValidInchFractionMeasurement(opening.width) && isValidInchFractionMeasurement(opening.height))
+          : !!opening.photoUri;
       case 3: return opening.openingType === 'Skylight' ? true : isValidMeasurement(opening.jamb);
-      case 4: return !!opening.photoUri;
-      case 5: return opening.openingType === 'Skylight' ? true : !!opening.basis;
-      case 6: return opening.openingType === 'Skylight' ? true : (opening.glassSelections.length >= 1 && opening.glassSelections.length <= 2);
-      case 7: return opening.openingType === 'Skylight' ? true : (!!opening.tempered && !!opening.fireZone && !!opening.fallingHazard && !!opening.egress);
-      case 8: return opening.openingType === 'Skylight' ? true : (opening.grids === 'No' || (!!opening.gridType && !!opening.gridDesign));
-      case 9: return opening.openingType === 'Skylight' ? true : !!opening.installType;
+      case 4: return opening.openingType === 'Skylight' ? true : !!opening.basis;
+      case 5: return opening.openingType === 'Skylight' ? true : (opening.glassSelections.length >= 1 && opening.glassSelections.length <= 2);
+      case 6: return opening.openingType === 'Skylight' ? true : (!!opening.tempered && !!opening.fireZone && !!opening.fallingHazard && !!opening.egress);
+      case 7: return opening.openingType === 'Skylight' ? true : (opening.grids === 'No' || (!!opening.gridType && !!opening.gridDesign));
+      case 8: return opening.openingType === 'Skylight' ? true : !!opening.installType;
+      case 9: return true;
       case 10: return true;
-      case 11: return true;
       default: return true;
     }
   }, [step, job, opening]);
@@ -571,7 +587,7 @@ export default function App() {
   const isStepRelevant = (s, openingType) => {
     if (openingType !== 'Skylight') return true;
     // For skylights, skip window/door-only stages.
-    const skylightSkipped = [3, 5, 6, 7, 8, 9]; // jamb, basis, glass, tempered/fire, grids, install
+    const skylightSkipped = [3, 4, 5, 6, 7, 8]; // jamb, basis, glass, tempered/fire, grids, install
     return !skylightSkipped.includes(s);
   };
 
@@ -579,11 +595,13 @@ export default function App() {
     switch (step) {
       case 0: return 'Please fill Job Name, Address, and Date in MM-DD-YYYY format.';
       case 1: return 'Please complete Room, Opening ID, Quantity, and subtype selection details.';
-      case 2: return 'Please enter valid Width and Height (fractions with optional brackets, or up to 2 decimals).';
+      case 2:
+        return opening.measureMethod === 'manual'
+          ? 'Please enter valid Width and Height using inches and fractions only (for example, 23 1/2).'
+          : 'Please capture or pick a photo before scanning.';
       case 3: return opening.openingType === 'Skylight' ? '' : 'Please enter a valid Jamb size (fractions with optional brackets, or up to 2 decimals).';
-      case 4: return 'Please capture or select a photo for this item.';
-      case 6: return 'Please choose 1 or 2 glass options.';
-      case 8: return 'Grid type and design are required when Grids = Yes.';
+      case 5: return 'Please choose 1 or 2 glass options.';
+      case 7: return 'Grid type and design are required when Grids = Yes.';
       default: return 'Please complete required fields before continuing.';
     }
   };
@@ -610,12 +628,12 @@ export default function App() {
   const saveCurrentOpening = async () => {
     const resolvedOperation = buildOperation(opening) || opening.operation;
     const resolvedGlass = (opening.glassSelections || []).join(' + ') || opening.glassType;
-    if (!opening.room || !opening.openingCode || !isValidQty(opening.qty) || !opening.photoUri || !opening.width || !opening.height || (opening.openingType !== 'Skylight' && !opening.jamb) || (opening.openingType !== 'Skylight' && !opening.installType) || !resolvedOperation) {
+    if (!opening.room || !opening.openingCode || !isValidQty(opening.qty) || !opening.width || !opening.height || (opening.openingType !== 'Skylight' && !opening.jamb) || (opening.openingType !== 'Skylight' && !opening.installType) || !resolvedOperation) {
       Alert.alert('Missing required fields', 'Please complete required opening fields.');
       return false;
     }
-    if (!isValidMeasurement(opening.width) || !isValidMeasurement(opening.height) || (opening.openingType !== 'Skylight' && !isValidMeasurement(opening.jamb))) {
-      Alert.alert('Invalid size format', 'Use fractions (e.g., 23 1/2 or 23 (1/2)) or decimals up to 2 places (e.g., 23.25).');
+    if (!isValidInchFractionMeasurement(opening.width) || !isValidInchFractionMeasurement(opening.height) || (opening.openingType !== 'Skylight' && !isValidMeasurement(opening.jamb))) {
+      Alert.alert('Invalid size format', 'Width and height must use inches and fractions only, like 23 1/2 or 48 1/4.');
       return false;
     }
     if (opening.grids === 'Yes' && (!opening.gridType || !opening.gridDesign)) {
@@ -666,7 +684,7 @@ export default function App() {
 
     try {
       await persistArchive(nextArchive);
-      enqueueChange({ entity: 'measurement', entityId: payload.id, op: 'upsert', payload: sanitizeMeasurementForCloud(payload) });
+      await enqueueChange({ entity: 'measurement', entityId: payload.id, op: 'upsert', payload: sanitizeMeasurementForCloud(payload) });
       const syncResult = await syncNow();
       if (!syncResult?.ok) {
         Alert.alert('Saved locally', 'Measurement is saved on this device and will upload to cloud automatically when connection/service is available.');
@@ -678,6 +696,7 @@ export default function App() {
     setEditIndex(null);
     setEditOpeningUid(null);
     setEntryMode('create');
+    setMeasureMethodTouched(false);
     setOpening(emptyOpening);
     return true;
   };
@@ -716,6 +735,7 @@ export default function App() {
 
   const resumeDraft = () => {
     if (!draftData) return;
+    setMeasureMethodTouched(false);
     setMeasurementId(draftData.measurementId || newMeasurementId());
     setJob({ ...(draftData.job || job), measureDate: normalizeDateToMMDDYYYY(draftData.job?.measureDate) || getTodayMMDDYYYY() });
     setOpening(draftData.opening || emptyOpening);
@@ -730,6 +750,7 @@ export default function App() {
 
   const startNewMeasurement = async () => {
     await clearDraft();
+    setMeasureMethodTouched(false);
     setMeasurementId(newMeasurementId());
     setShowHome(false);
     setShowArchive(false);
@@ -755,6 +776,7 @@ export default function App() {
     setEditIndex(null);
     setEditOpeningUid(null);
     setEntryMode('create');
+    setMeasureMethodTouched(false);
     setOpening(emptyOpening);
     setStep(1);
   };
@@ -769,7 +791,7 @@ export default function App() {
     setShowHome(true);
 
     if (payload) {
-      enqueueChange({ entity: 'measurement', entityId: payload.id, op: 'upsert', payload: sanitizeMeasurementForCloud(payload) });
+      await enqueueChange({ entity: 'measurement', entityId: payload.id, op: 'upsert', payload: sanitizeMeasurementForCloud(payload) });
       syncNow().catch(() => {});
     }
   };
@@ -797,6 +819,7 @@ export default function App() {
     setEditIndex(idx);
     setEditOpeningUid(uid);
     setEntryMode('edit');
+    setMeasureMethodTouched(false);
     setOpening({ ...target, _uid: uid });
     setStep(1);
   };
@@ -843,7 +866,7 @@ export default function App() {
     const payload = await upsertLocalArchiveOnly({ silent });
     if (!payload) return;
 
-    enqueueChange({ entity: 'measurement', entityId: payload.id, op: 'upsert', payload: sanitizeMeasurementForCloud(payload) });
+    await enqueueChange({ entity: 'measurement', entityId: payload.id, op: 'upsert', payload: sanitizeMeasurementForCloud(payload) });
     await syncNow();
 
     if (!silent) Alert.alert('Saved', 'Job saved to 1-year measurement archive.');
@@ -922,10 +945,27 @@ export default function App() {
 
   useEffect(() => {
     // Keep per-measurement cloud status badges fresh.
-    refreshPendingMeasurements();
-    const t = setInterval(() => refreshPendingMeasurements(), 3000);
+    refreshPendingMeasurements().catch(() => {});
+    const t = setInterval(() => {
+      refreshPendingMeasurements().catch(() => {});
+    }, 3000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (!pendingQueueCount) return;
+      syncNow()
+        .then((result) => {
+          if (result?.flushed) {
+            loadArchive().catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }, 15000);
+
+    return () => clearInterval(t);
+  }, [pendingQueueCount]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
@@ -946,8 +986,18 @@ export default function App() {
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
 
+    const isLocalhost =
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1';
+
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
+      if (isLocalhost) {
+        navigator.serviceWorker.getRegistrations()
+          .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+          .catch(() => {});
+      } else {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      }
     }
 
     return () => {
@@ -1029,7 +1079,7 @@ export default function App() {
     }
 
     // Queue remote delete so server state matches local delete/trash state.
-    enqueueChange({ entity: 'measurement', entityId: id, op: 'delete', payload: null });
+    await enqueueChange({ entity: 'measurement', entityId: id, op: 'delete', payload: null });
     await syncNow();
   };
 
@@ -1048,7 +1098,7 @@ export default function App() {
     await persistTrash(nextTrash);
     await persistArchive(nextArchive);
 
-    enqueueChange({ entity: 'measurement', entityId: restored.id, op: 'upsert', payload: sanitizeMeasurementForCloud(restored) });
+    await enqueueChange({ entity: 'measurement', entityId: restored.id, op: 'upsert', payload: sanitizeMeasurementForCloud(restored) });
     await syncNow();
   };
 
@@ -1098,6 +1148,7 @@ export default function App() {
     }
 
     setShowHome(false);
+    setMeasureMethodTouched(false);
     setMeasurementId(saved.id || newMeasurementId());
     setJob({ ...(saved.job || {}), measureDate: normalizeDateToMMDDYYYY(saved.job?.measureDate) || getTodayMMDDYYYY() });
     setOpenings(saved.openings || []);
@@ -1302,6 +1353,28 @@ export default function App() {
     }
   };
 
+  const captureExtraPhoto = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) return Alert.alert('Camera access needed', 'Please allow camera access to capture extra photos.');
+    const result = await ImagePicker.launchCameraAsync({ quality: 0.7, allowsEditing: false, base64: Platform.OS === 'web' });
+    if (!result.canceled && result.assets?.[0]) {
+      const asset = result.assets[0];
+      const stableData = Platform.OS === 'web' ? await makeStableWebPhotoUri(asset) : await buildNativeCompressedDataUri(asset.uri);
+      setOpening(prev => ({ ...prev, extraPhotoUri: stableData || asset.uri, extraPhotoDataUri: stableData || prev.extraPhotoDataUri || '' }));
+    }
+  };
+
+  const pickExtraPhotoFromLibrary = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return Alert.alert('Photo library access needed', 'Please allow photo library access.');
+    const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.8, allowsEditing: false, base64: Platform.OS === 'web' });
+    if (!result.canceled && result.assets?.[0]) {
+      const asset = result.assets[0];
+      const stableData = Platform.OS === 'web' ? await makeStableWebPhotoUri(asset) : await buildNativeCompressedDataUri(asset.uri);
+      setOpening(prev => ({ ...prev, extraPhotoUri: stableData || asset.uri, extraPhotoDataUri: stableData || prev.extraPhotoDataUri || '' }));
+    }
+  };
+
   const scanFromCurrentPhoto = async (useCreditCard = false) => {
     if (!opening.photoUri && !opening.photoDataUri) {
       Alert.alert('Scan needs a photo', 'Capture or pick a head-on photo first.');
@@ -1333,10 +1406,10 @@ export default function App() {
         next.grids = f.hasGrids.value ? 'Yes' : 'No';
       }
       if (f.estimatedWidthIn?.confidence >= t && Number.isFinite(f.estimatedWidthIn.value)) {
-        next.width = String(f.estimatedWidthIn.value);
+        next.width = formatMeasurementToQuarterInches(f.estimatedWidthIn.value);
       }
       if (f.estimatedHeightIn?.confidence >= t && Number.isFinite(f.estimatedHeightIn.value)) {
-        next.height = String(f.estimatedHeightIn.value);
+        next.height = formatMeasurementToQuarterInches(f.estimatedHeightIn.value);
       }
 
       setOpening(next);
@@ -1354,7 +1427,7 @@ export default function App() {
         'DimensionSnap Analysis Complete',
         applied.length
           ? `Precision Scale Applied: ${applied.join(', ')} (rounded to nearest 1/4").\n\nPlease verify these values manually.`
-          : 'Photo quality too low to scale automatically. Ensure your 1" marker or Credit Card is clearly visible and head-on.'
+          : 'Photo quality too low to scale automatically. Ensure the credit card is clearly visible and the photo is head-on.'
       );
     } catch (e) {
       Alert.alert('Scan failed', e?.message || 'Unable to analyze photo.');
@@ -1549,6 +1622,7 @@ export default function App() {
   };
 
   const exportPdfSave = async () => {
+    setShowReportChooser(false);
     const openingsWithImages = await withEmbeddedImages(openings);
     const html = buildHtmlReport(job, openingsWithImages);
     const safeJob = (job.jobName || 'job').replace(/[^a-z0-9-_]+/gi, '_');
@@ -1571,6 +1645,7 @@ export default function App() {
   };
 
   const exportPdfShare = async () => {
+    setShowReportChooser(false);
     const openingsWithImages = await withEmbeddedImages(openings);
     const html = buildHtmlReport(job, openingsWithImages);
     const safeJob = (job.jobName || 'job').replace(/[^a-z0-9-_]+/gi, '_');
@@ -1593,6 +1668,7 @@ export default function App() {
   };
 
   const exportExcelReport = async () => {
+    setShowReportChooser(false);
     const csv = buildCsvFromOpenings(job, openings);
     const safeJob = (job.jobName || 'job').replace(/[^a-z0-9-_]+/gi, '_');
     const stamp = new Date().toISOString().slice(0, 10);
@@ -1863,25 +1939,29 @@ export default function App() {
         <Text style={styles.stepTitle}>{steps[step]}</Text>
         {!isSummary && !!validationError ? <Text style={styles.errorText}>{validationError}</Text> : null}
 
-        {!isSummary && renderStep(step, { job, setJob, opening, setOpening, capturePhoto, pickPhotoFromLibrary, scanFromCurrentPhoto, scanBusy })}
+        {!isSummary && renderStep(step, { job, setJob, opening, setOpening, setMeasureMethodTouched, capturePhoto, pickPhotoFromLibrary, captureExtraPhoto, pickExtraPhotoFromLibrary, scanFromCurrentPhoto, scanBusy })}
 
         {isSummary && (
           <View>
-            <Text style={styles.section}>Overall Job Summary</Text>
-            <View style={styles.syncLegendRow}>
-              <View style={currentMeasurementSyncStatus === 'synced' ? styles.syncBadgeSynced : styles.syncBadgePending}>
-                <Text style={styles.syncBadgeText}>{currentMeasurementSyncStatus === 'synced' ? '✓' : '…'}</Text>
+            <View style={styles.summaryHeaderRow}>
+              <Text style={styles.section}>Overall Job Summary</Text>
+              <View style={styles.summarySyncWrap}>
+                <View style={currentMeasurementSyncStatus === 'synced' ? styles.syncBadgeSynced : styles.syncBadgePending}>
+                  <Text style={styles.syncBadgeText}>{currentMeasurementSyncStatus === 'synced' ? '✓' : '…'}</Text>
+                </View>
+                <Text style={styles.summarySyncText}>{currentMeasurementSyncStatus === 'synced' ? 'Uploaded to cloud' : 'Queued for upload'}</Text>
               </View>
-              <Text style={styles.cardTextCompact}>{currentMeasurementSyncStatus === 'synced' ? 'Uploaded to cloud' : 'Queued for cloud upload'}</Text>
             </View>
-            <SummaryRow label="Job" value={job.jobName} />
-            <SummaryRow label="Address" value={job.address} />
-            <SummaryRow label="Date" value={job.measureDate} />
-            <SummaryRow label="Job Site Contact" value={job.onSiteContact || '-'} />
-            <SummaryRow label="Measured by" value={job.measuredBy || '-'} />
-            <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={() => setShowJobInfoEditor(true)}>
-              <Text style={styles.btnText}>Edit Job Information</Text>
-            </TouchableOpacity>
+            <View style={styles.summaryInfoCard}>
+              <TouchableOpacity style={styles.summaryEditPencil} onPress={() => setShowJobInfoEditor(true)}>
+                <Text style={styles.smallActionIcon}>✏️</Text>
+              </TouchableOpacity>
+              <SummaryRow label="Job" value={job.jobName} />
+              <SummaryRow label="Address" value={job.address} />
+              <SummaryRow label="Date" value={job.measureDate} />
+              <SummaryRow label="Job Site Contact" value={job.onSiteContact || '-'} />
+              <SummaryRow label="Measured by" value={job.measuredBy || '-'} />
+            </View>
 
             <Text style={styles.section}>Openings ({counts.total} items across {counts.lines} lines)</Text>
             {openings.map((o, i) => (
@@ -1956,17 +2036,22 @@ export default function App() {
               ) : null}
 
               {showReportChooser ? (
-                <View style={styles.reportChooser}>
-                  <Text style={styles.label}>Choose report format:</Text>
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <TouchableOpacity style={[styles.btn, { marginTop: 0, backgroundColor: '#0ea5e9' }]} onPress={() => exportPdfShare()}>
-                      <Text style={styles.btnText}>Share PDF</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.btn, { marginTop: 0, backgroundColor: '#7c3aed' }]} onPress={() => exportExcelReport()}>
-                      <Text style={styles.btnText}>Excel (.csv)</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
+                <Modal visible={showReportChooser} transparent animationType="fade" onRequestClose={() => setShowReportChooser(false)}>
+                  <Pressable style={styles.modalBackdrop} onPress={() => setShowReportChooser(false)}>
+                    <Pressable style={styles.confirmCard} onPress={() => {}}>
+                      <Text style={styles.cardTitle}>Generate Quote</Text>
+                      <Text style={styles.cardTextCompact}>Choose export format:</Text>
+                      <View style={styles.reportChooserActions}>
+                        <TouchableOpacity style={[styles.btn, { marginTop: 0, backgroundColor: '#0ea5e9' }]} onPress={() => exportPdfShare()}>
+                          <Text style={styles.btnText}>PDF</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.btn, { marginTop: 0, backgroundColor: '#7c3aed' }]} onPress={() => exportExcelReport()}>
+                          <Text style={styles.btnText}>Excel</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </Pressable>
+                  </Pressable>
+                </Modal>
               ) : null}
             </View>
           </View>
@@ -2084,7 +2169,7 @@ export default function App() {
 }
 
 function renderStep(step, ctx) {
-  const { job, setJob, opening, setOpening, capturePhoto, pickPhotoFromLibrary, scanFromCurrentPhoto, scanBusy } = ctx;
+  const { job, setJob, opening, setOpening, setMeasureMethodTouched, capturePhoto, pickPhotoFromLibrary, captureExtraPhoto, pickExtraPhotoFromLibrary, scanFromCurrentPhoto, scanBusy } = ctx;
   switch (step) {
     case 0:
       return (
@@ -2124,13 +2209,19 @@ function renderStep(step, ctx) {
           <View style={styles.rowGap}>
             <TouchableOpacity
               style={[styles.btn, opening.measureMethod === 'manual' ? null : styles.btnGhost]}
-              onPress={() => setOpening({ ...opening, measureMethod: 'manual' })}
+              onPress={() => {
+                setMeasureMethodTouched(true);
+                setOpening({ ...opening, measureMethod: 'manual' });
+              }}
             >
               <Text style={styles.btnText}>Manual Entry</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.btn, { backgroundColor: '#7c3aed' }, opening.measureMethod === 'snap' ? null : styles.btnGhost]}
-              onPress={() => setOpening({ ...opening, measureMethod: 'snap' })}
+              onPress={() => {
+                setMeasureMethodTouched(true);
+                setOpening({ ...opening, measureMethod: 'snap' });
+              }}
             >
               <Text style={styles.btnText}>DimensionSnap</Text>
             </TouchableOpacity>
@@ -2138,25 +2229,55 @@ function renderStep(step, ctx) {
 
           {opening.measureMethod === 'snap' ? (
             <>
-              <Text style={styles.cardText}>Use a head-on photo with a 1" sticker OR a Credit Card visible.</Text>
-              {(opening.photoDataUri || opening.photoUri) ? <Image source={{ uri: opening.photoDataUri || opening.photoUri }} style={styles.previewPhoto} /> : <Text style={styles.label}>No scan photo selected yet.</Text>}
+              <Text style={styles.cardText}>Use a head-on photo with a standard credit card visible for scale.</Text>
+              {(opening.photoDataUri || opening.photoUri) ? (
+                <View style={styles.photoPreviewWrap}>
+                  <Image source={{ uri: opening.photoDataUri || opening.photoUri }} style={styles.previewPhoto} />
+                  <TouchableOpacity
+                    style={styles.photoOverlayDelete}
+                    onPress={() => setOpening({
+                      ...opening,
+                      photoUri: '',
+                      photoDataUri: '',
+                      width: '',
+                      height: ''
+                    })}
+                  >
+                    <Text style={styles.photoOverlayDeleteText}>🗑</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : <Text style={styles.label}>No scan photo selected yet.</Text>}
               <View style={styles.rowGap}>
                 <TouchableOpacity style={styles.btn} onPress={capturePhoto}><Text style={styles.btnText}>Capture Photo</Text></TouchableOpacity>
                 <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={pickPhotoFromLibrary}><Text style={styles.btnText}>Pick from Library</Text></TouchableOpacity>
               </View>
-              <View style={styles.rowGap}>
-                <TouchableOpacity style={[styles.btn, { backgroundColor: '#7c3aed', flex: 1 }]} onPress={() => scanFromCurrentPhoto(false)} disabled={scanBusy}>
-                  <Text style={styles.btnText}>{scanBusy ? '...' : 'Scan (1" Sticker)'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.btn, { backgroundColor: '#0284c7', flex: 1 }]} onPress={() => scanFromCurrentPhoto(true)} disabled={scanBusy}>
-                  <Text style={styles.btnText}>{scanBusy ? '...' : 'Scan (Credit Card)'}</Text>
-                </TouchableOpacity>
-              </View>
+              {(opening.photoDataUri || opening.photoUri) ? (
+                <View style={styles.rowGap}>
+                  <TouchableOpacity style={[styles.btn, { backgroundColor: '#0284c7', flex: 1 }]} onPress={() => scanFromCurrentPhoto(true)} disabled={scanBusy}>
+                    <Text style={styles.btnText}>{scanBusy ? 'Scanning...' : 'Scan'}</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
             </>
           ) : null}
 
-          <Input label='Width (in) *' value={opening.width} onChangeText={v => setOpening({ ...opening, width: v })} placeholder='e.g. 23 1/2 or 23.25' />
-          <Input label='Height (in) *' value={opening.height} onChangeText={v => setOpening({ ...opening, height: v })} placeholder='e.g. 48 or 47.75' />
+          {opening.measureMethod === 'manual' ? (
+            <>
+              <Text style={styles.cardText}>Enter width and height in inches using whole numbers or fractions only.</Text>
+              <Input label='Width (in) *' value={opening.width} onChangeText={v => setOpening({ ...opening, width: v })} placeholder='e.g. 23 1/2' />
+              <Input label='Height (in) *' value={opening.height} onChangeText={v => setOpening({ ...opening, height: v })} placeholder='e.g. 48 1/4' />
+            </>
+          ) : (
+            <>
+              <Text style={styles.cardText}>DimensionSnap stays photo-first here. Tap Manual Entry if you want to type width and height yourself.</Text>
+              {(opening.width || opening.height) ? (
+                <View style={styles.lockedRow}>
+                  <Text style={styles.cardTextCompact}>Detected size</Text>
+                  <Text style={styles.cardText}>{`${opening.width || '-'} W x ${opening.height || '-'} H`}</Text>
+                </View>
+              ) : null}
+            </>
+          )}
         </>
       );
     case 3:
@@ -2169,17 +2290,6 @@ function renderStep(step, ctx) {
         </>
       );
     case 4:
-      return (
-        <>
-          {(opening.photoDataUri || opening.photoUri) ? <Image source={{ uri: opening.photoDataUri || opening.photoUri }} style={styles.previewPhoto} /> : <Text style={styles.label}>No photo captured yet.</Text>}
-          <View style={styles.rowGap}>
-            <TouchableOpacity style={styles.btn} onPress={capturePhoto}><Text style={styles.btnText}>Capture Photo</Text></TouchableOpacity>
-            <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={pickPhotoFromLibrary}><Text style={styles.btnText}>Pick from Library</Text></TouchableOpacity>
-          </View>
-          <Input label="Photo note" value={opening.photoNote} onChangeText={v => setOpening({ ...opening, photoNote: v })} />
-        </>
-      );
-    case 5:
       return opening.openingType === 'Skylight' ? (
         <Text style={styles.cardText}>Net frame / rough opening does not apply to skylights. Skipping this step.</Text>
       ) : (
@@ -2188,7 +2298,7 @@ function renderStep(step, ctx) {
           <Text style={styles.cardText}>Basis selection affects width/height only. Jamb stays as inside size.</Text>
         </>
       );
-    case 6:
+    case 5:
       return opening.openingType === 'Skylight' ? (
         <Text style={styles.cardText}>Glass type does not apply to skylights. Skipping this step.</Text>
       ) : (
@@ -2202,7 +2312,7 @@ function renderStep(step, ctx) {
           <Text style={styles.cardText}>If you select “Other”, add details in General Notes. (Clear + Privacy cannot be combined.)</Text>
         </>
       );
-    case 7:
+    case 6:
       return opening.openingType === 'Skylight' ? (
         <Text style={styles.cardText}>Tempered / fire-zone check does not apply to skylights. Skipping this step.</Text>
       ) : (
@@ -2221,7 +2331,7 @@ function renderStep(step, ctx) {
           <PickerLike label='Egress *' value={opening.egress || 'No'} options={['Yes', 'No']} onChange={v => setOpening({ ...opening, egress: v })} />
         </>
       );
-    case 8:
+    case 7:
       return opening.openingType === 'Skylight' ? (
         <Text style={styles.cardText}>Grids do not apply to skylights. Skipping this step.</Text>
       ) : (
@@ -2235,16 +2345,42 @@ function renderStep(step, ctx) {
           )}
         </>
       );
-    case 9:
+    case 8:
       return opening.openingType === 'Skylight' ? (
         <Text style={styles.cardText}>Installation type does not apply to skylights (already defined by Deck/Curb mount). Skipping this step.</Text>
       ) : (
         <PickerLike label='Installation type *' value={opening.installType} options={INSTALL_TYPES} onChange={v => setOpening({ ...opening, installType: v })} />
       );
-    case 10:
+    case 9:
       return <Input label={opening.openingType === 'Skylight' ? 'Existing skylight type' : 'Existing window type'} value={opening.existingType} onChangeText={v => setOpening({ ...opening, existingType: v })} />;
-    case 11:
-      return <Input label='General notes' value={opening.notes} onChangeText={v => setOpening({ ...opening, notes: v })} multiline />;
+    case 10:
+      return (
+        <>
+          <Input label='General notes' value={opening.notes} onChangeText={v => setOpening({ ...opening, notes: v })} multiline />
+          <Text style={styles.section}>Extra Photos</Text>
+          {(opening.extraPhotoDataUri || opening.extraPhotoUri) ? (
+            <View style={styles.photoPreviewWrap}>
+              <Image source={{ uri: opening.extraPhotoDataUri || opening.extraPhotoUri }} style={styles.previewPhoto} />
+              <TouchableOpacity
+                style={styles.photoOverlayDelete}
+                onPress={() => setOpening({
+                  ...opening,
+                  extraPhotoUri: '',
+                  extraPhotoDataUri: '',
+                  photoNote: ''
+                })}
+              >
+                <Text style={styles.photoOverlayDeleteText}>🗑</Text>
+              </TouchableOpacity>
+            </View>
+          ) : <Text style={styles.label}>No extra photo added.</Text>}
+          <View style={styles.rowGap}>
+            <TouchableOpacity style={styles.btn} onPress={captureExtraPhoto}><Text style={styles.btnText}>Capture Extra Photo</Text></TouchableOpacity>
+            <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={pickExtraPhotoFromLibrary}><Text style={styles.btnText}>Pick Extra Photo</Text></TouchableOpacity>
+          </View>
+          <Input label='Photo notes (optional)' value={opening.photoNote} onChangeText={v => setOpening({ ...opening, photoNote: v })} multiline />
+        </>
+      );
     default:
       return null;
   }
@@ -2467,6 +2603,35 @@ function isValidMeasurement(v) {
   return false;
 }
 
+function isValidInchFractionMeasurement(v) {
+  const s = (v || '').toString().trim();
+  if (!s) return false;
+  if (/^\d+$/.test(s)) return true;
+  if (/^\(?\d+\/\d+\)?$/.test(s)) return true;
+  if (/^\d+\s+\(?\d+\/\d+\)?$/.test(s)) return true;
+  return false;
+}
+
+function formatMeasurementToQuarterInches(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return '';
+
+  const roundedQuarters = Math.round(n * 4);
+  const whole = Math.floor(roundedQuarters / 4);
+  const remainder = roundedQuarters % 4;
+
+  if (remainder === 0) return String(whole);
+  if (whole === 0) {
+    if (remainder === 1) return '1/4';
+    if (remainder === 2) return '1/2';
+    return '3/4';
+  }
+
+  if (remainder === 1) return `${whole} 1/4`;
+  if (remainder === 2) return `${whole} 1/2`;
+  return `${whole} 3/4`;
+}
+
 function buildOperation(opening) {
   if (opening.openingType === 'Door') {
     if (opening.subtype === 'Multi-slide') return opening.configA?.trim() ? `Multi-slide: ${opening.configA.trim()}` : '';
@@ -2585,7 +2750,10 @@ const styles = StyleSheet.create({
   syncDebugText: { color: '#94a3b8', fontSize: 12 },
   label: { color: '#cbd5e1', marginBottom: 4 },
   input: { backgroundColor: '#1e293b', color: 'white', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#334155' },
-  previewPhoto: { width: '100%', height: 220, borderRadius: 10, marginBottom: 10, borderWidth: 1, borderColor: '#334155' },
+  photoPreviewWrap: { position: 'relative', marginBottom: 10 },
+  previewPhoto: { width: '100%', height: 220, borderRadius: 10, borderWidth: 1, borderColor: '#334155' },
+  photoOverlayDelete: { position: 'absolute', right: 10, bottom: 10, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(15,23,42,0.9)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#94a3b8' },
+  photoOverlayDeleteText: { fontSize: 16, color: '#f8fafc' },
   cardTopRow: { flexDirection: 'row', alignItems: 'center' },
   titleQtyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 4, marginBottom: 1 },
   qtyInputInline: { backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#334155', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, minWidth: 50, alignItems: 'center' },
@@ -2646,6 +2814,11 @@ const styles = StyleSheet.create({
   card: { backgroundColor: '#1e293b', borderColor: '#334155', borderWidth: 1, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 6, marginBottom: 6, overflow: 'visible' },
   cardTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
   cardTitle: { color: 'white', fontWeight: '700', marginBottom: 1, fontSize: 15, lineHeight: 18 },
+  summaryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 },
+  summarySyncWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14, marginBottom: 8, flexShrink: 1, justifyContent: 'flex-end' },
+  summarySyncText: { color: '#cbd5e1', fontSize: 12, fontWeight: '700', textAlign: 'right' },
+  summaryInfoCard: { position: 'relative', backgroundColor: '#1e293b', borderColor: '#334155', borderWidth: 1, borderRadius: 12, padding: 12, paddingTop: 16, marginBottom: 10 },
+  summaryEditPencil: { position: 'absolute', right: 10, top: 10, width: 34, height: 34, borderRadius: 10, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#475569', alignItems: 'center', justifyContent: 'center', zIndex: 2 },
   syncLegendRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   syncFooterRow: { marginTop: 4, alignItems: 'flex-end', minHeight: 20 },
   syncBadgeSynced: { width: 20, height: 20, borderRadius: 10, backgroundColor: 'BRAND.orange', borderWidth: 1, borderColor: '#bbf7d0', alignItems: 'center', justifyContent: 'center', marginRight: 0 },
@@ -2665,6 +2838,7 @@ const styles = StyleSheet.create({
   lockedRow: { backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155', borderRadius: 8, padding: 10, marginBottom: 10 },
   lockedText: { color: '#e2e8f0', fontWeight: '700' },
   reportChooser: { backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155', borderRadius: 10, padding: 10 },
+  reportChooserActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
   swipeHint: { color: '#fca5a5', fontSize: 11, marginTop: 6 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   qtyPickerCard: { width: 120, maxHeight: 420, backgroundColor: '#111827', borderWidth: 1, borderColor: '#334155', borderRadius: 10, overflow: 'hidden' },

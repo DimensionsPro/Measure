@@ -1,5 +1,5 @@
 // Dimensions Scanner (MVP scaffold)
-// Goal: accept a head-on photo with 1" square sticker and return best-effort fields + confidence.
+// Goal: accept a head-on photo with a visible credit card and return best-effort fields + confidence.
 
 export const SCAN_FIELD_SCHEMA = {
   requiredInput: [
@@ -21,9 +21,7 @@ export const SCAN_FIELD_SCHEMA = {
  * High-precision window classification and measurement scaling.
  */
 
-const REFERENCE_MARKER_IN = 3.375; // Primary: Credit Card (3.375")
 const CREDIT_CARD_WIDTH_IN = 3.375;
-const STICKER_ONE_INCH = 1.0;
 
 function getImageSizeAsync(uri, Image) {
   return new Promise((resolve) => {
@@ -98,8 +96,8 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, useCreditCard 
   }
 
   const referenceText = useCreditCard
-    ? 'Detect the standard credit card in this image and use it as a 3.375-inch horizontal scale reference.'
-    : 'Detect the 1-inch square sticker/marker in this image and use it as the scale reference.';
+    ? `Detect the standard credit card in this image and use it as a ${CREDIT_CARD_WIDTH_IN}-inch horizontal scale reference.`
+    : `Detect the standard credit card in this image and use it as a ${CREDIT_CARD_WIDTH_IN}-inch horizontal scale reference.`;
 
   // 1. Identify and Measure via Gemini 2.0 Flash (Fast + Vision Capable)
   try {
