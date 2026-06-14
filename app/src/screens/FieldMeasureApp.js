@@ -1288,7 +1288,7 @@ export default function App() {
   });
 
   const makeStableWebPhotoUri = async (asset) => {
-    const PHOTO_SYNC_MAX_BYTES = 450 * 1024;
+    const PHOTO_SYNC_MAX_BYTES = 1200 * 1024;
     if (!asset) return '';
 
     if (asset.base64) {
@@ -1325,7 +1325,7 @@ export default function App() {
   };
 
   const buildNativeCompressedDataUri = async (uri) => {
-    const PHOTO_SYNC_MAX_BYTES = 450 * 1024;
+    const PHOTO_SYNC_MAX_BYTES = 1200 * 1024;
     const compressedUri = await compressNativeUriUnder2MB(uri, PHOTO_SYNC_MAX_BYTES);
     const b64 = await FileSystem.readAsStringAsync(compressedUri, { encoding: FileSystem.EncodingType.Base64 });
     return `data:${getMimeFromUri(compressedUri)};base64,${b64}`;
@@ -1426,8 +1426,8 @@ export default function App() {
       Alert.alert(
         'DimensionSnap Analysis Complete',
         applied.length
-          ? `Precision Scale Applied: ${applied.join(', ')} (rounded to nearest 1/4").\n\nPlease verify these values manually.`
-          : 'Photo quality too low to scale automatically. Ensure the credit card is clearly visible and the photo is head-on.'
+          ? `Applied: ${applied.join(', ')}\nMeasured: ${next.width || '-'}" x ${next.height || '-'}"\nSource: ${result.meta?.measurementSource || 'vision'}\n\nPlease verify these values manually.`
+          : 'Photo quality too low to scale automatically. Ensure your 1" marker or Credit Card is clearly visible and head-on.'
       );
     } catch (e) {
       Alert.alert('Scan failed', e?.message || 'Unable to analyze photo.');

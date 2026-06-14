@@ -22,6 +22,8 @@ export const SCAN_FIELD_SCHEMA = {
  */
 
 const CREDIT_CARD_WIDTH_IN = 3.375;
+const STICKER_ONE_INCH = 1.0;
+const COMMON_GUESS_PAIRS = new Set(['54x72', '72x54', '36x48', '48x36', '48x60', '60x48']);
 
 function getImageSizeAsync(uri, Image) {
   return new Promise((resolve) => {
@@ -85,6 +87,70 @@ function extractJsonObject(text = '') {
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
+function numeric(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function roundToQuarter(value) {
+  const n = numeric(value);
+  if (n === null) return null;
+  return Math.round(n * 4) / 4;
+}
+
+function buildMeasuredFields(aiResult, knownReferenceWidthIn) {
+  const confidence = Math.max(0, Math.min(1, numeric(aiResult.confidence) ?? 0));
+  const referenceDetected = aiResult.reference_detected === true;
+  const referenceWidthPx = numeric(aiResult.reference_width_px);
+  const openingWidthPx = numeric(aiResult.opening_width_px);
+  const openingHeightPx = numeric(aiResult.opening_height_px);
+  const directWidth = numeric(aiResult.width_in);
+  const directHeight = numeric(aiResult.height_in);
+
+  const hasPixelScale = referenceDetected
+    && referenceWidthPx !== null
+    && openingWidthPx !== null
+    && openingHeightPx !== null
+    && referenceWidthPx > 5
+    && openingWidthPx > referenceWidthPx
+    && openingHeightPx > referenceWidthPx;
+
+  if (!hasPixelScale) {
+    return {
+      widthIn: null,
+      heightIn: null,
+      confidence: Math.min(confidence, 0.49),
+      source: 'no-scale-pixel-evidence',
+      referenceDetected,
+      referenceWidthPx,
+      openingWidthPx,
+      openingHeightPx
+    };
+  }
+
+  const pxToIn = knownReferenceWidthIn / referenceWidthPx;
+  const widthIn = roundToQuarter(openingWidthPx * pxToIn);
+  const heightIn = roundToQuarter(openingHeightPx * pxToIn);
+  const directGuessKey = directWidth !== null && directHeight !== null
+    ? `${Math.round(directWidth)}x${Math.round(directHeight)}`
+    : '';
+  const measuredGuessKey = widthIn !== null && heightIn !== null
+    ? `${Math.round(widthIn)}x${Math.round(heightIn)}`
+    : '';
+  const looksLikeCommonGuess = COMMON_GUESS_PAIRS.has(directGuessKey) || COMMON_GUESS_PAIRS.has(measuredGuessKey);
+
+  return {
+    widthIn,
+    heightIn,
+    confidence: looksLikeCommonGuess ? Math.min(confidence, 0.68) : confidence,
+    source: 'pixel-scale-ratio',
+    referenceDetected,
+    referenceWidthPx,
+    openingWidthPx,
+    openingHeightPx
+  };
+}
+
 export async function analyzeWindowPhoto({ photoUri, base64Image, useCreditCard = true }) {
   const imageUrl = normalizeImageUrl({ photoUri, base64Image });
   if (!imageUrl) {
@@ -96,8 +162,9 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, useCreditCard 
   }
 
   const referenceText = useCreditCard
-    ? `Detect the standard credit card in this image and use it as a ${CREDIT_CARD_WIDTH_IN}-inch horizontal scale reference.`
-    : `Detect the standard credit card in this image and use it as a ${CREDIT_CARD_WIDTH_IN}-inch horizontal scale reference.`;
+    ? 'Find the standard credit card. Use its long horizontal edge as exactly 3.375 inches.'
+    : 'Find the 1-inch square sticker/marker. Use one visible side of the square as exactly 1.0 inch.';
+  const knownReferenceWidthIn = useCreditCard ? CREDIT_CARD_WIDTH_IN : STICKER_ONE_INCH;
 
   // 1. Identify and Measure via Gemini 2.0 Flash (Fast + Vision Capable)
   try {
@@ -117,7 +184,15 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, useCreditCard 
             content: [
               {
                 type: 'text',
-                text: `${referenceText} Measure the Net Frame width and height of the window. Return ONLY a valid JSON object with double-quoted keys: { "width_in": number, "height_in": number, "subtype": string, "confidence": number }.`
+                text: [
+                  `${referenceText}`,
+                  'Measure the visible net frame/opening from the photo using pixel ratios, not by guessing a common window size.',
+                  'First estimate these pixel spans from the image: reference_width_px, opening_width_px, opening_height_px.',
+                  'If the reference object or opening edges are not clearly visible, set reference_detected=false, confidence below 0.5, and dimensions to null.',
+                  'Do not return common default sizes such as 54x72 unless the pixel ratio supports them.',
+                  'Return ONLY a valid JSON object with double-quoted keys:',
+                  '{ "reference_detected": boolean, "reference_kind": string, "reference_width_px": number|null, "opening_width_px": number|null, "opening_height_px": number|null, "width_in": number|null, "height_in": number|null, "subtype": string, "confidence": number, "notes": string }'
+                ].join(' ')
               },
               {
                 type: 'image_url',
@@ -137,18 +212,23 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, useCreditCard 
     const data = await response.json();
     const content = data?.choices?.[0]?.message?.content;
     const aiResult = extractJsonObject(content);
-    const confidence = Number(aiResult.confidence);
+    const measured = buildMeasuredFields(aiResult, knownReferenceWidthIn);
 
     return {
       meta: {
         version: 'blackbriar-v2.0-vision',
-        engine: 'gemini-2.0-flash'
+        engine: 'gemini-2.0-flash',
+        measurementSource: measured.source,
+        referenceDetected: measured.referenceDetected,
+        referenceWidthPx: measured.referenceWidthPx,
+        openingWidthPx: measured.openingWidthPx,
+        openingHeightPx: measured.openingHeightPx
       },
       fields: {
         openingType: { value: 'Window', confidence: 1.0 },
-        subtype: { value: aiResult.subtype || 'Other', confidence },
-        estimatedWidthIn: { value: Number(aiResult.width_in), confidence },
-        estimatedHeightIn: { value: Number(aiResult.height_in), confidence }
+        subtype: { value: aiResult.subtype || 'Other', confidence: measured.confidence },
+        estimatedWidthIn: { value: measured.widthIn, confidence: measured.confidence },
+        estimatedHeightIn: { value: measured.heightIn, confidence: measured.confidence }
       }
     };
   } catch (e) {
