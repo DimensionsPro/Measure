@@ -22,7 +22,6 @@ export const SCAN_FIELD_SCHEMA = {
  */
 
 const CREDIT_CARD_WIDTH_IN = 3.375;
-const STICKER_ONE_INCH = 1.0;
 const SCANNER_MODEL = 'google/gemini-2.5-flash';
 const COMMON_GUESS_PAIRS = new Set(['54x72', '72x54', '36x48', '48x36', '48x60', '60x48']);
 
@@ -166,7 +165,7 @@ function buildMeasuredFields(aiResult, knownReferenceWidthIn) {
   };
 }
 
-export async function analyzeWindowPhoto({ photoUri, base64Image, useCreditCard = true, expectedOpeningType = 'Window' }) {
+export async function analyzeWindowPhoto({ photoUri, base64Image, expectedOpeningType = 'Window' }) {
   const imageUrl = normalizeImageUrl({ photoUri, base64Image });
   if (!imageUrl) {
     throw new Error('No photo data was available for scanning.');
@@ -176,15 +175,27 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, useCreditCard 
     throw new Error('Missing EXPO_PUBLIC_OPENROUTER_KEY. Add it to your environment before scanning.');
   }
 
-  const referenceText = useCreditCard
-    ? 'Find the standard credit card. Use its long horizontal edge as exactly 3.375 inches.'
-    : 'Find the 1-inch square sticker/marker. Use one visible side of the square as exactly 1.0 inch.';
-  const knownReferenceWidthIn = useCreditCard ? CREDIT_CARD_WIDTH_IN : STICKER_ONE_INCH;
+  const referenceText = 'Find the standard credit card or credit-card-sized marker. Use its long edge as exactly 3.375 inches.';
+  const knownReferenceWidthIn = CREDIT_CARD_WIDTH_IN;
   const openingTypeText = expectedOpeningType === 'Door'
-    ? 'This is expected to be a door. For patio sliders, multi-slides, or swinging doors, measure the full visible door unit/frame from outer left frame to outer right frame and from sill to top frame. Do not measure only one glass panel, one operable sash, or the glass daylight opening.'
+    ? [
+        'This is expected to be a door, often a patio slider or multi-slide.',
+        'Measure the full door unit rectangle, not a panel.',
+        'Width target: from the outer exposed left vertical door-frame/jamb edge to the outer exposed right vertical door-frame/jamb edge.',
+        'Height target: from the top head-frame edge to the bottom sill/threshold edge.',
+        'Use the color/material boundary where the door frame changes to surrounding stucco, wall, casing, molding, or trim.',
+        'Do not measure only glass, only one sliding panel, one operable sash, screen frame, center meeting rail, decorative molding, wall trim, or stucco opening.',
+        'If blue/light-blue guide lines are drawn on the photo, treat those guide lines as the intended measurement edges.'
+      ].join(' ')
     : expectedOpeningType === 'Skylight'
       ? 'This is expected to be a skylight. Measure the full visible skylight frame/curb, not only the glass daylight opening.'
-      : 'This is expected to be a window. Measure the full visible window frame/opening, not only one sash or the glass daylight opening.';
+      : [
+          'This is expected to be a window.',
+          'Measure the full visible window unit/frame rectangle from outer frame edge to outer frame edge.',
+          'Use the color/material boundary where the window frame changes to surrounding wall, casing, molding, or trim.',
+          'Do not measure only glass, one sash, daylight opening, decorative molding, wall trim, or stucco opening.',
+          'If blue/light-blue guide lines are drawn on the photo, treat those guide lines as the intended measurement edges.'
+        ].join(' ');
 
   // 1. Identify and Measure via the configured OpenRouter vision model.
   try {
@@ -207,7 +218,7 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, useCreditCard 
                 text: [
                   `${referenceText}`,
                   openingTypeText,
-                  'Measure the visible net frame/opening from the photo using pixel ratios, not by guessing a common window size.',
+                  'Measure the target unit frame from the photo using pixel ratios, not by guessing a common size.',
                   'First estimate these pixel spans from the image: reference_width_px, opening_width_px, opening_height_px.',
                   'If the reference object or opening edges are not clearly visible, set reference_detected=false, confidence below 0.5, and dimensions to null.',
                   'Do not return common default sizes such as 54x72 unless the pixel ratio supports them.',
