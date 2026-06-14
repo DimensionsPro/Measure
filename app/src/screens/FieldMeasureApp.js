@@ -69,6 +69,8 @@ const emptyOpening = {
   photoNote: '',
   width: '',
   height: '',
+  scannedWidth: '',
+  scannedHeight: '',
   jamb: '',
   basis: 'Net frame',
   glassType: '',
@@ -624,8 +626,11 @@ export default function App() {
     }
   };
 
-  const failSave = (title, message) => {
+  const failSave = (title, message, targetStep = null) => {
     setValidationError(`${title}: ${message}`);
+    if (typeof targetStep === 'number') {
+      setStep(targetStep);
+    }
     Alert.alert(title, message);
     return false;
   };
@@ -658,25 +663,50 @@ export default function App() {
   const saveCurrentOpening = async () => {
     const resolvedOperation = buildOperation(opening) || opening.operation;
     const resolvedGlass = (opening.glassSelections || []).join(' + ') || opening.glassType;
-    if (!opening.width || !opening.height) {
-      return failSave('Dimensions required', 'Please scan a photo until width and height are detected, or switch to Manual Entry and type the dimensions.');
-    }
-    if (!opening.room || !opening.openingCode || !isValidQty(opening.qty) || !opening.width || !opening.height || (opening.openingType !== 'Skylight' && !opening.jamb) || (opening.openingType !== 'Skylight' && !opening.installType) || !resolvedOperation) {
+    if (!opening.room || !opening.openingCode || !isValidQty(opening.qty) || !resolvedOperation) {
       const missing = [
         !opening.room ? 'Room' : null,
         !opening.openingCode ? 'Opening ID' : null,
         !isValidQty(opening.qty) ? 'Quantity' : null,
-        !resolvedOperation ? 'Operation/configuration' : null,
-        opening.openingType !== 'Skylight' && !opening.jamb ? 'Jamb' : null,
-        opening.openingType !== 'Skylight' && !opening.installType ? 'Installation type' : null
+        !resolvedOperation ? 'Operation/configuration' : null
       ].filter(Boolean);
-      return failSave('Missing required fields', `Please complete: ${missing.join(', ')}.`);
+      return failSave('Missing room details', `Please complete: ${missing.join(', ')}.`, 1);
     }
-    if (!isValidInchFractionMeasurement(opening.width) || !isValidInchFractionMeasurement(opening.height) || (opening.openingType !== 'Skylight' && !isValidMeasurement(opening.jamb))) {
-      return failSave('Invalid size format', 'Width and height must use inches and fractions only, like 23 1/2 or 48 1/4.');
+    if (!opening.width || !opening.height) {
+      return failSave('Dimensions required', 'Please scan a photo until width and height are detected, or switch to Manual Entry and type the dimensions.', 2);
     }
-    if (opening.grids === 'Yes' && (!opening.gridType || !opening.gridDesign)) {
-      return failSave('Grid details required', 'Please add grid type and design.');
+    if (!isValidInchFractionMeasurement(opening.width) || !isValidInchFractionMeasurement(opening.height)) {
+      return failSave('Invalid size format', 'Width and height must use inches and fractions only, like 23 1/2 or 48 1/4.', 2);
+    }
+
+    if (opening.openingType !== 'Skylight') {
+      if (!opening.jamb) {
+        return failSave('Jamb required', 'Please enter jamb thickness.', 3);
+      }
+      if (!isValidMeasurement(opening.jamb)) {
+        return failSave('Invalid jamb format', 'Jamb must use a valid fraction or decimal, like 4 9/16 or 4.56.', 3);
+      }
+      if (!opening.basis) {
+        return failSave('Measurement basis required', 'Please choose Net frame or Rough opening.', 4);
+      }
+      if (!opening.glassSelections?.length || opening.glassSelections.length > 2) {
+        return failSave('Glass options required', 'Please choose 1 or 2 glass options.', 5);
+      }
+      if (!opening.tempered || !opening.fireZone || !opening.fallingHazard || !opening.egress) {
+        return failSave('Condition options required', 'Please complete tempered, fire zone, falling hazard, and egress selections.', 6);
+      }
+      if (opening.grids === 'Yes' && (!opening.gridType || !opening.gridDesign)) {
+        return failSave('Grid details required', 'Please add grid type and design.', 7);
+      }
+      if (!opening.installType) {
+        return failSave('Installation type required', 'Please choose an installation type.', 8);
+      }
+    }
+
+    if (opening.openingType === 'Skylight') {
+      if (!resolvedOperation) {
+        return failSave('Skylight details required', 'Please complete skylight pitch and roof type selections.', 1);
+      }
     }
 
     const finalOpening = {
@@ -1405,7 +1435,7 @@ export default function App() {
       const asset = result.assets[0];
       const stableData = Platform.OS === 'web' ? await makeStableWebPhotoUri(asset) : await buildNativeCompressedDataUri(asset.uri);
       setScanMessage('Photo ready. Tap Scan to detect dimensions.');
-      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '', width: '', height: '' }));
+      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '', width: '', height: '', scannedWidth: '', scannedHeight: '' }));
     }
   };
 
@@ -1417,7 +1447,7 @@ export default function App() {
       const asset = result.assets[0];
       const stableData = Platform.OS === 'web' ? await makeStableWebPhotoUri(asset) : await buildNativeCompressedDataUri(asset.uri);
       setScanMessage('Photo ready. Tap Scan to detect dimensions.');
-      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '', width: '', height: '' }));
+      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '', width: '', height: '', scannedWidth: '', scannedHeight: '' }));
     }
   };
 
@@ -1481,9 +1511,11 @@ export default function App() {
       }
       if (f.estimatedWidthIn?.confidence >= t && Number.isFinite(f.estimatedWidthIn.value)) {
         next.width = formatMeasurementToQuarterInches(f.estimatedWidthIn.value);
+        next.scannedWidth = next.width;
       }
       if (f.estimatedHeightIn?.confidence >= t && Number.isFinite(f.estimatedHeightIn.value)) {
         next.height = formatMeasurementToQuarterInches(f.estimatedHeightIn.value);
+        next.scannedHeight = next.height;
       }
 
       setOpening(next);
@@ -2387,7 +2419,9 @@ function renderStep(step, ctx) {
                         photoUri: '',
                         photoDataUri: '',
                         width: '',
-                        height: ''
+                        height: '',
+                        scannedWidth: '',
+                        scannedHeight: ''
                       });
                       setScanMessage('');
                     }}
@@ -2404,9 +2438,6 @@ function renderStep(step, ctx) {
                 <View style={styles.rowGap}>
                   <TouchableOpacity style={[styles.btn, { backgroundColor: '#0284c7', flex: 1 }]} onPress={() => scanFromCurrentPhoto(true)} disabled={scanBusy}>
                     <Text style={styles.btnText}>{scanBusy ? 'Scanning...' : 'Scan Credit Card'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.btn, { backgroundColor: '#0f766e', flex: 1 }]} onPress={() => scanFromCurrentPhoto(false)} disabled={scanBusy}>
-                    <Text style={styles.btnText}>{scanBusy ? 'Scanning...' : 'Scan 1" Marker'}</Text>
                   </TouchableOpacity>
                 </View>
               ) : null}
@@ -2431,10 +2462,10 @@ function renderStep(step, ctx) {
               <Text style={styles.cardText}>Verify DimensionSnap results before continuing. Edit width and height here if the estimate is off.</Text>
               <Input label='Verified width (in) *' value={opening.width} onChangeText={v => setOpening({ ...opening, width: v })} placeholder='e.g. 96' />
               <Input label='Verified height (in) *' value={opening.height} onChangeText={v => setOpening({ ...opening, height: v })} placeholder='e.g. 80' />
-              {(opening.width || opening.height) ? (
+              {(opening.scannedWidth || opening.scannedHeight) ? (
                 <View style={styles.lockedRow}>
-                  <Text style={styles.cardTextCompact}>Detected size</Text>
-                  <Text style={styles.cardText}>{`${opening.width || '-'} W x ${opening.height || '-'} H`}</Text>
+                  <Text style={styles.cardTextCompact}>Original scanned size</Text>
+                  <Text style={styles.cardText}>{`${opening.scannedWidth || '-'} W x ${opening.scannedHeight || '-'} H`}</Text>
                 </View>
               ) : null}
             </>
