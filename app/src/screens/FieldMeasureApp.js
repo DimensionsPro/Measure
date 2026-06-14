@@ -142,6 +142,7 @@ export default function App() {
   const [stayLoggedIn, setStayLoggedIn] = useState(true);
   const [loginError, setLoginError] = useState('');
   const [scanBusy, setScanBusy] = useState(false);
+  const [scanMessage, setScanMessage] = useState('');
   const [measureMethodTouched, setMeasureMethodTouched] = useState(false);
 
   const latestJobRef = useRef(job);
@@ -246,11 +247,25 @@ export default function App() {
       if (result.ok) {
         setLastCloudSyncAt(new Date().toISOString());
         setLastSyncError('');
+        try {
+          const remote = pruneToOneYear(await fetchRemoteMeasurements());
+          const remoteTsMap = {};
+          const remoteCountMap = {};
+          for (const r of remote) {
+            remoteTsMap[r.id] = r.savedAt || null;
+            remoteCountMap[r.id] = Array.isArray(r.openings) ? r.openings.length : Number(r?.counts?.lines || 0);
+          }
+          setCloudSavedAtById(remoteTsMap);
+          setCloudOpeningsCountById(remoteCountMap);
+        } catch (e) {
+          setLastSyncError(String(e?.message || e).slice(0, 120));
+        }
       }
       await refreshPendingMeasurements();
       return result;
-    } catch {
+    } catch (e) {
       setSyncState('error');
+      setLastSyncError(String(e?.message || e).slice(0, 120));
       await refreshPendingMeasurements();
       return { ok: false, offline: false, flushed: 0, remaining: null };
     }
@@ -573,7 +588,7 @@ export default function App() {
       case 2:
         return opening.measureMethod === 'manual'
           ? (isValidInchFractionMeasurement(opening.width) && isValidInchFractionMeasurement(opening.height))
-          : !!opening.photoUri;
+          : !!(opening.photoUri || opening.photoDataUri) && isValidInchFractionMeasurement(opening.width) && isValidInchFractionMeasurement(opening.height);
       case 3: return opening.openingType === 'Skylight' ? true : isValidMeasurement(opening.jamb);
       case 4: return opening.openingType === 'Skylight' ? true : !!opening.basis;
       case 5: return opening.openingType === 'Skylight' ? true : (opening.glassSelections.length >= 1 && opening.glassSelections.length <= 2);
@@ -600,7 +615,7 @@ export default function App() {
       case 2:
         return opening.measureMethod === 'manual'
           ? 'Please enter valid Width and Height using inches and fractions only (for example, 23 1/2).'
-          : 'Please capture or pick a photo before scanning.';
+          : 'Please capture or pick a photo, then tap Scan until width and height are detected. Use Manual Entry if you need to type dimensions.';
       case 3: return opening.openingType === 'Skylight' ? '' : 'Please enter a valid Jamb size (fractions with optional brackets, or up to 2 decimals).';
       case 5: return 'Please choose 1 or 2 glass options.';
       case 7: return 'Grid type and design are required when Grids = Yes.';
@@ -630,6 +645,10 @@ export default function App() {
   const saveCurrentOpening = async () => {
     const resolvedOperation = buildOperation(opening) || opening.operation;
     const resolvedGlass = (opening.glassSelections || []).join(' + ') || opening.glassType;
+    if (!opening.width || !opening.height) {
+      Alert.alert('Dimensions required', 'Please scan a photo until width and height are detected, or switch to Manual Entry and type the dimensions.');
+      return false;
+    }
     if (!opening.room || !opening.openingCode || !isValidQty(opening.qty) || !opening.width || !opening.height || (opening.openingType !== 'Skylight' && !opening.jamb) || (opening.openingType !== 'Skylight' && !opening.installType) || !resolvedOperation) {
       Alert.alert('Missing required fields', 'Please complete required opening fields.');
       return false;
@@ -738,6 +757,7 @@ export default function App() {
   const resumeDraft = () => {
     if (!draftData) return;
     setMeasureMethodTouched(false);
+    setScanMessage('');
     setMeasurementId(draftData.measurementId || newMeasurementId());
     setJob({ ...(draftData.job || job), measureDate: normalizeDateToMMDDYYYY(draftData.job?.measureDate) || getTodayMMDDYYYY() });
     setOpening(draftData.opening || emptyOpening);
@@ -753,6 +773,7 @@ export default function App() {
   const startNewMeasurement = async () => {
     await clearDraft();
     setMeasureMethodTouched(false);
+    setScanMessage('');
     setMeasurementId(newMeasurementId());
     setShowHome(false);
     setShowArchive(false);
@@ -779,6 +800,7 @@ export default function App() {
     setEditOpeningUid(null);
     setEntryMode('create');
     setMeasureMethodTouched(false);
+    setScanMessage('');
     setOpening(emptyOpening);
     setStep(1);
   };
@@ -822,6 +844,7 @@ export default function App() {
     setEditOpeningUid(uid);
     setEntryMode('edit');
     setMeasureMethodTouched(false);
+    setScanMessage('');
     setOpening({ ...target, _uid: uid });
     setStep(1);
   };
@@ -1355,7 +1378,8 @@ export default function App() {
     if (!result.canceled && result.assets?.[0]) {
       const asset = result.assets[0];
       const stableData = Platform.OS === 'web' ? await makeStableWebPhotoUri(asset) : await buildNativeCompressedDataUri(asset.uri);
-      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '' }));
+      setScanMessage('Photo ready. Tap Scan to detect dimensions.');
+      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '', width: '', height: '' }));
     }
   };
 
@@ -1366,7 +1390,8 @@ export default function App() {
     if (!result.canceled && result.assets?.[0]) {
       const asset = result.assets[0];
       const stableData = Platform.OS === 'web' ? await makeStableWebPhotoUri(asset) : await buildNativeCompressedDataUri(asset.uri);
-      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '' }));
+      setScanMessage('Photo ready. Tap Scan to detect dimensions.');
+      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '', width: '', height: '' }));
     }
   };
 
@@ -1394,11 +1419,14 @@ export default function App() {
 
   const scanFromCurrentPhoto = async (useCreditCard = false) => {
     if (!opening.photoUri && !opening.photoDataUri) {
+      setScanMessage('Capture or pick a head-on photo before scanning.');
       Alert.alert('Scan needs a photo', 'Capture or pick a head-on photo first.');
       return;
     }
 
     setScanBusy(true);
+    setValidationError('');
+    setScanMessage('Scanning photo...');
     try {
       const result = await analyzeWindowPhoto({
         photoUri: opening.photoDataUri || opening.photoUri,
@@ -1440,6 +1468,17 @@ export default function App() {
         f.estimatedHeightIn?.confidence >= t ? 'height' : null
       ].filter(Boolean);
 
+      const detectedSize = isValidInchFractionMeasurement(next.width) && isValidInchFractionMeasurement(next.height);
+      if (!detectedSize) {
+        const message = 'Scan could not detect reliable dimensions. Make sure the credit card/1" marker and opening edges are clear, or use Manual Entry.';
+        setScanMessage(message);
+        setValidationError(message);
+        Alert.alert('Scan needs a clearer photo', message);
+        return;
+      }
+
+      const completeMessage = `Detected ${next.width}" x ${next.height}" from ${result.meta?.measurementSource || 'vision'}. Please verify before continuing.`;
+      setScanMessage(completeMessage);
       Alert.alert(
         'DimensionSnap Analysis Complete',
         applied.length
@@ -1447,7 +1486,10 @@ export default function App() {
           : 'Photo quality too low to scale automatically. Ensure your 1" marker or Credit Card is clearly visible and head-on.'
       );
     } catch (e) {
-      Alert.alert('Scan failed', e?.message || 'Unable to analyze photo.');
+      const message = e?.message || 'Unable to analyze photo.';
+      setScanMessage(`Scan failed: ${message}`);
+      setValidationError(`Scan failed: ${message}`);
+      Alert.alert('Scan failed', message);
     } finally {
       setScanBusy(false);
     }
@@ -1957,7 +1999,7 @@ export default function App() {
         <Text style={styles.stepTitle}>{steps[step]}</Text>
         {!isSummary && !!validationError ? <Text style={styles.errorText}>{validationError}</Text> : null}
 
-        {!isSummary && renderStep(step, { job, setJob, opening, setOpening, setMeasureMethodTouched, capturePhoto, pickPhotoFromLibrary, captureExtraPhoto, pickExtraPhotoFromLibrary, scanFromCurrentPhoto, scanBusy })}
+        {!isSummary && renderStep(step, { job, setJob, opening, setOpening, setMeasureMethodTouched, capturePhoto, pickPhotoFromLibrary, captureExtraPhoto, pickExtraPhotoFromLibrary, scanFromCurrentPhoto, scanBusy, scanMessage, setScanMessage })}
 
         {isSummary && (
           <View>
@@ -2242,7 +2284,7 @@ export default function App() {
 }
 
 function renderStep(step, ctx) {
-  const { job, setJob, opening, setOpening, setMeasureMethodTouched, capturePhoto, pickPhotoFromLibrary, captureExtraPhoto, pickExtraPhotoFromLibrary, scanFromCurrentPhoto, scanBusy } = ctx;
+  const { job, setJob, opening, setOpening, setMeasureMethodTouched, capturePhoto, pickPhotoFromLibrary, captureExtraPhoto, pickExtraPhotoFromLibrary, scanFromCurrentPhoto, scanBusy, scanMessage, setScanMessage } = ctx;
   switch (step) {
     case 0:
       return (
@@ -2284,6 +2326,7 @@ function renderStep(step, ctx) {
               style={[styles.btn, opening.measureMethod === 'manual' ? null : styles.btnGhost]}
               onPress={() => {
                 setMeasureMethodTouched(true);
+                setScanMessage('');
                 setOpening({ ...opening, measureMethod: 'manual' });
               }}
             >
@@ -2293,6 +2336,7 @@ function renderStep(step, ctx) {
               style={[styles.btn, { backgroundColor: '#7c3aed' }, opening.measureMethod === 'snap' ? null : styles.btnGhost]}
               onPress={() => {
                 setMeasureMethodTouched(true);
+                setScanMessage(opening.photoUri || opening.photoDataUri ? 'Photo ready. Tap Scan to detect dimensions.' : '');
                 setOpening({ ...opening, measureMethod: 'snap' });
               }}
             >
@@ -2308,13 +2352,16 @@ function renderStep(step, ctx) {
                   <Image source={{ uri: opening.photoDataUri || opening.photoUri }} style={styles.previewPhoto} />
                   <TouchableOpacity
                     style={styles.photoOverlayDelete}
-                    onPress={() => setOpening({
-                      ...opening,
-                      photoUri: '',
-                      photoDataUri: '',
-                      width: '',
-                      height: ''
-                    })}
+                    onPress={() => {
+                      setOpening({
+                        ...opening,
+                        photoUri: '',
+                        photoDataUri: '',
+                        width: '',
+                        height: ''
+                      });
+                      setScanMessage('');
+                    }}
                   >
                     <Text style={styles.photoOverlayDeleteText}>🗑</Text>
                   </TouchableOpacity>
@@ -2331,6 +2378,13 @@ function renderStep(step, ctx) {
                   </TouchableOpacity>
                 </View>
               ) : null}
+              {scanBusy ? (
+                <View style={styles.scanStatusRow}>
+                  <ActivityIndicator color="#38bdf8" />
+                  <Text style={styles.scanStatusText}>Scanning photo...</Text>
+                </View>
+              ) : null}
+              {scanMessage ? <Text style={styles.scanStatusText}>{scanMessage}</Text> : null}
             </>
           ) : null}
 
@@ -2907,9 +2961,11 @@ const styles = StyleSheet.create({
   openingDetailCloseBtn: { position: 'absolute', right: 4, top: 1, width: 32, height: 32, borderRadius: 10, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#475569', alignItems: 'center', justifyContent: 'center', zIndex: 2 },
   syncLegendRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   syncFooterRow: { marginTop: 4, alignItems: 'flex-end', minHeight: 20 },
-  syncBadgeSynced: { width: 20, height: 20, borderRadius: 10, backgroundColor: 'BRAND.orange', borderWidth: 1, borderColor: '#bbf7d0', alignItems: 'center', justifyContent: 'center', marginRight: 0 },
+  syncBadgeSynced: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#16a34a', borderWidth: 1, borderColor: '#bbf7d0', alignItems: 'center', justifyContent: 'center', marginRight: 0 },
   syncBadgePending: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#64748b', borderWidth: 1, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center', marginRight: 0 },
   syncBadgeText: { color: '#fff', fontSize: 12, fontWeight: '900', lineHeight: 13 },
+  scanStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  scanStatusText: { color: '#cbd5e1', fontSize: 12, lineHeight: 16, marginTop: 6 },
   unfinishedBadge: { color: '#fbbf24', fontSize: 11, fontWeight: '800', borderWidth: 1, borderColor: '#fbbf24', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
   rowDeleteX: { width: 18, height: 18, borderRadius: 4, backgroundColor: '#dc2626', alignItems: 'center', justifyContent: 'center' },
   rowDeleteXFloating: { position: 'absolute', right: 8, top: 6, width: 18, height: 18, borderRadius: 4, backgroundColor: '#dc2626', alignItems: 'center', justifyContent: 'center', zIndex: 6 },
