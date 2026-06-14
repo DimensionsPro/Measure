@@ -1458,6 +1458,38 @@ export default function App() {
   };
 
   const pickPhotoFromLibrary = async () => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) {
+          setScanMessage('No photo was selected.');
+          return;
+        }
+
+        try {
+          const stableData = await compressWebBlobToDataUri(file, 1200 * 1024);
+          setScanMessage('Photo ready. Tap Scan to detect dimensions.');
+          setValidationError('');
+          setOpening(prev => ({ ...prev, photoUri: stableData, photoDataUri: stableData, width: '', height: '', scannedWidth: '', scannedHeight: '' }));
+        } catch {
+          try {
+            const dataUri = await toDataUriFromBlob(file);
+            setScanMessage('Photo ready. Tap Scan to detect dimensions.');
+            setValidationError('');
+            setOpening(prev => ({ ...prev, photoUri: dataUri, photoDataUri: dataUri, width: '', height: '', scannedWidth: '', scannedHeight: '' }));
+          } catch {
+            setScanMessage('Photo import failed. Try taking a new photo or choosing a smaller image.');
+            Alert.alert('Photo import failed', 'Try taking a new photo or choosing a smaller image.');
+          }
+        }
+      };
+      input.click();
+      return;
+    }
+
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return Alert.alert('Photo library access needed', 'Please allow photo library access.');
     const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.8, allowsEditing: false, base64: Platform.OS === 'web' });
@@ -1481,6 +1513,30 @@ export default function App() {
   };
 
   const pickExtraPhotoFromLibrary = async () => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        try {
+          const stableData = await compressWebBlobToDataUri(file, 1200 * 1024);
+          setOpening(prev => ({ ...prev, extraPhotoUri: stableData, extraPhotoDataUri: stableData }));
+        } catch {
+          try {
+            const dataUri = await toDataUriFromBlob(file);
+            setOpening(prev => ({ ...prev, extraPhotoUri: dataUri, extraPhotoDataUri: dataUri }));
+          } catch {
+            Alert.alert('Photo import failed', 'Try choosing a smaller extra photo.');
+          }
+        }
+      };
+      input.click();
+      return;
+    }
+
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return Alert.alert('Photo library access needed', 'Please allow photo library access.');
     const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.8, allowsEditing: false, base64: Platform.OS === 'web' });
