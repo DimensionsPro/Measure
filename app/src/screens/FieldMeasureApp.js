@@ -23,6 +23,24 @@ const BRAND = {
   dark: '#121212',
   gray: '#2A2A2A'
 };
+const UI = {
+  bg: '#0f172a',
+  surface: '#172033',
+  surfaceWarm: '#1e293b',
+  surfaceSoft: '#26364d',
+  faint: '#26364d',
+  ink: '#f8fafc',
+  muted: '#cbd5e1',
+  border: '#334155',
+  borderStrong: '#475569',
+  primary: '#f97316',
+  primaryDeep: '#fb923c',
+  secondary: '#06b6d4',
+  secondarySoft: '#12313c',
+  danger: '#dc2626',
+  slate: '#334155',
+  logoPlate: '#0b1220'
+};
 const PASSWORD_EYE_ICON = require('../../assets/images/password-eye.svg');
 const PASSWORD_EYE_OFF_ICON = require('../../assets/images/password-eye-off.svg');
 const LOCAL_AUTH_KEY = 'dimensions_pro_auth_v1';
@@ -1834,7 +1852,7 @@ export default function App() {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.authWrap}>
-          <ActivityIndicator size="large" color="#93c5fd" />
+          <ActivityIndicator size="large" color={UI.primary} />
           <Text style={styles.authSubtitle}>Checking secure session…</Text>
         </View>
       </SafeAreaView>
@@ -1852,7 +1870,7 @@ export default function App() {
           <TextInput
             style={[styles.input, { width: '100%' }]}
             placeholder="Username"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={UI.muted}
             autoCapitalize="none"
             value={loginUsername}
             onChangeText={setLoginUsername}
@@ -1861,7 +1879,7 @@ export default function App() {
             <TextInput
               style={styles.passwordInput}
               placeholder="Password"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={UI.muted}
               secureTextEntry={!showPassword}
               value={loginPassword}
               onChangeText={setLoginPassword}
@@ -1950,14 +1968,8 @@ export default function App() {
       <SafeAreaView style={styles.safe}>
         <ScrollView contentContainerStyle={styles.container}>
           <View style={styles.authTopRowPinned}>
-            <Text style={styles.authUserTextPinned}>{authUser?.email || 'Signed in'}</Text>
+            <Text style={styles.authUserTextPinned}>DimensionsPro</Text>
             <View style={styles.authActionsRow}>
-              <TouchableOpacity style={styles.authRefreshBtn} onPress={async () => {
-                await syncNow().catch(() => {});
-                await loadArchive();
-              }}>
-                <Text style={styles.authSignOutText}>Refresh</Text>
-              </TouchableOpacity>
               <TouchableOpacity style={styles.authSignOutBtn} onPress={() => {
                 try {
                   if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
@@ -1973,8 +1985,7 @@ export default function App() {
             </View>
           </View>
           <Image source={APP_LOGO} style={styles.logoLarge} resizeMode="contain" />
-          <Text style={styles.h1}>DimensionsPro</Text>
-          {showSyncBanner ? <Text style={[styles.errorText, { color: syncState === 'error' ? '#fca5a5' : '#fbbf24' }]}>{syncBannerText}</Text> : null}
+          {showSyncBanner ? <Text style={[styles.errorText, { color: syncState === 'error' ? UI.danger : UI.primaryDeep }]}>{syncBannerText}</Text> : null}
           <TouchableOpacity style={styles.homePrimaryAction} onPress={startNewMeasurement} activeOpacity={0.86}>
             <View style={styles.homePrimaryActionIcon}>
               <Text style={styles.homePrimaryActionIconText}>+</Text>
@@ -2020,7 +2031,7 @@ export default function App() {
               <Text style={styles.cardTextCompact}>{t.job?.address || '-'}</Text>
               <Text style={styles.cardTextCompact}>Deleted: {t.trashedAt ? new Date(t.trashedAt).toLocaleString() : '-'}</Text>
               <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-                <TouchableOpacity style={[styles.btn, { marginTop: 0, backgroundColor: '#0ea5e9' }]} onPress={() => restoreFromTrash(t.id)}>
+                <TouchableOpacity style={[styles.btn, styles.btnAlt, { marginTop: 0 }]} onPress={() => restoreFromTrash(t.id)}>
                   <Text style={styles.btnText}>Restore</Text>
                 </TouchableOpacity>
               </View>
@@ -2053,7 +2064,7 @@ export default function App() {
       <ScrollView contentContainerStyle={styles.container}>
         <Image source={APP_LOGO} style={styles.logo} resizeMode="contain" />
         <Text style={styles.h1}>DimensionsPro</Text>
-        {showSyncBanner ? <Text style={[styles.errorText, { color: syncState === 'error' ? '#fca5a5' : '#fbbf24' }]}>{syncBannerText}</Text> : null}
+        {showSyncBanner ? <Text style={[styles.errorText, { color: syncState === 'error' ? UI.danger : UI.primaryDeep }]}>{syncBannerText}</Text> : null}
         {entryMode === 'edit' && editIndex !== null && !isSummary ? <Text style={styles.editBadge}>Editing item #{editIndex + 1}</Text> : null}
         {entryMode === 'copy' && !isSummary ? <Text style={styles.editBadge}>Copy mode</Text> : null}
         <Text style={styles.progress}>Step {Math.min(step + 1, steps.length)} / {steps.length}</Text>
@@ -2131,7 +2142,7 @@ export default function App() {
             <View style={styles.rowGap}>
               <TouchableOpacity style={styles.btn} onPress={addAnother}><Text style={styles.btnText}>Add an Item</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.btn, styles.btnAlt]} onPress={exportReport}><Text style={styles.btnText}>Generate Quote-Ready Report</Text></TouchableOpacity>
-              <TouchableOpacity style={[styles.btn, { backgroundColor: '#475569' }]} onPress={backToMainPage}><Text style={styles.btnText}>Back to Main Page</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={backToMainPage}><Text style={styles.btnText}>Back to Main Page</Text></TouchableOpacity>
 
               {showArchive ? (
                 <View style={styles.reportChooser}>
@@ -2141,7 +2152,7 @@ export default function App() {
                     value={archiveQuery}
                     onChangeText={setArchiveQuery}
                     placeholder="Search archive..."
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={UI.muted}
                   />
                   {filteredArchive.length === 0 ? <Text style={styles.cardText}>No saved jobs found.</Text> : null}
                   {filteredArchive.map((s) => (
@@ -2165,10 +2176,10 @@ export default function App() {
                       <Text style={styles.cardTitle}>Generate Quote</Text>
                       <Text style={styles.cardTextCompact}>Choose export format:</Text>
                       <View style={styles.reportChooserActions}>
-                        <TouchableOpacity style={[styles.btn, { marginTop: 0, backgroundColor: '#0ea5e9' }]} onPress={() => exportPdfShare()}>
+                        <TouchableOpacity style={[styles.btn, styles.btnAlt, { marginTop: 0 }]} onPress={() => exportPdfShare()}>
                           <Text style={styles.btnText}>PDF</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={[styles.btn, { marginTop: 0, backgroundColor: '#7c3aed' }]} onPress={() => exportExcelReport()}>
+                        <TouchableOpacity style={[styles.btn, { marginTop: 0 }]} onPress={() => exportExcelReport()}>
                           <Text style={styles.btnText}>Excel</Text>
                         </TouchableOpacity>
                       </View>
@@ -2187,14 +2198,14 @@ export default function App() {
             ) : (
               <View style={{ flex: 1 }} />
             )}
+            <TouchableOpacity style={[styles.btn, styles.btnSaveExit]} onPress={saveAndExit}>
+              <Text style={styles.btnText}>Save & Exit</Text>
+            </TouchableOpacity>
             {step < lastEntryStep ? (
               <TouchableOpacity style={styles.btn} onPress={next}><Text style={styles.btnText}>Next</Text></TouchableOpacity>
             ) : (
               <TouchableOpacity style={styles.btn} onPress={finishOpening}><Text style={styles.btnText}>{editIndex === null ? 'Finish Opening' : 'Save Changes'}</Text></TouchableOpacity>
             )}
-            <TouchableOpacity style={[styles.btn, styles.btnSaveExit]} onPress={saveAndExit}>
-              <Text style={styles.btnText}>Save & Exit</Text>
-            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
@@ -2218,7 +2229,7 @@ export default function App() {
                   value={qtyCustomValue}
                   onChangeText={setQtyCustomValue}
                   placeholder="Enter any number"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={UI.muted}
                   keyboardType="numeric"
                 />
                 <TouchableOpacity
@@ -2394,7 +2405,7 @@ function renderStep(step, ctx) {
               <Text style={styles.btnText}>Manual Entry</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.btn, { backgroundColor: '#7c3aed' }, opening.measureMethod === 'snap' ? null : styles.btnGhost]}
+              style={[styles.btn, styles.btnAlt, opening.measureMethod === 'snap' ? null : styles.btnGhost]}
               onPress={() => {
                 setMeasureMethodTouched(true);
                 setScanMessage(opening.photoUri || opening.photoDataUri ? 'Photo ready. Tap Scan to detect dimensions.' : '');
@@ -2593,7 +2604,7 @@ function SwipeArchiveItem({ item, onOpen, onDelete, compact = false, hasUnfinish
         <Text style={styles.cardTextCompact}>{item.job?.address || '-'}</Text>
         <Text style={styles.cardTextCompact}>Measured: {formatDateForMainList(item.job?.measureDate)}</Text>
         <Text style={styles.cardTextCompact}>Items: {item.counts?.total || 0}</Text>
-        {hasUnfinishedItem ? <Text style={[styles.cardTextCompact, { color: '#fbbf24' }]}>Unfinished item in progress</Text> : null}
+        {hasUnfinishedItem ? <Text style={[styles.cardTextCompact, { color: UI.primaryDeep, fontWeight: '900' }]}>Unfinished item in progress</Text> : null}
       </TouchableOpacity>
       <View style={styles.syncFooterRow}>
         {syncStatus === 'synced' ? (
@@ -2614,7 +2625,7 @@ function Input({ label, ...props }) {
   return (
     <View style={{ marginBottom: 10 }}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput style={[styles.input, props.multiline && { minHeight: 80 }]} {...props} />
+      <TextInput placeholderTextColor={UI.muted} style={[styles.input, props.multiline && { minHeight: 80 }]} {...props} />
     </View>
   );
 }
@@ -2863,7 +2874,7 @@ function buildOperation(opening) {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#0f172a' },
+  safe: { flex: 1, backgroundColor: UI.bg },
   introSafe: { flex: 1, backgroundColor: '#000' },
   introWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 },
   introVideoFrame: { width: '92%', maxWidth: 420, aspectRatio: 9 / 16, alignItems: 'center', justifyContent: 'center' },
@@ -2916,147 +2927,174 @@ const styles = StyleSheet.create({
   },
   stampText: { color: '#f3f4f6', fontSize: 20, fontWeight: '900', letterSpacing: 2.4, textAlign: 'center' },
   introTapHint: { color: '#9ca3af', marginTop: 18, fontSize: 12, textAlign: 'center', letterSpacing: 0.4 },
-  container: { padding: 16, paddingBottom: 80 },
-  logo: { width: 180, height: 60, alignSelf: 'center', marginBottom: 6 },
-  logoLarge: { width: 280, height: 100, alignSelf: 'center', marginBottom: 10, marginTop: 8 },
-  h1: { color: 'white', fontSize: 22, fontWeight: '700', marginBottom: 4, textAlign: 'center' },
-  authWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 18, gap: 10 },
-  authSubtitle: { color: '#cbd5e1', textAlign: 'center', marginBottom: 8 },
-  authFinePrint: { color: '#94a3b8', fontSize: 12, textAlign: 'center', marginTop: 6 },
-  authErrorText: { color: '#fca5a5', fontSize: 12, fontWeight: '700', textAlign: 'center', marginTop: 6 },
+  container: { padding: 18, paddingTop: 12, paddingBottom: 96 },
+  logo: { width: 180, height: 60, alignSelf: 'center', marginBottom: 4 },
+  logoLarge: { width: '78%', maxWidth: 310, height: 96, alignSelf: 'center', marginTop: 2, marginBottom: 16 },
+  h1: { color: UI.ink, fontSize: 28, fontWeight: '900', marginBottom: 8, textAlign: 'center', letterSpacing: -0.4 },
+  authWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 22, gap: 12 },
+  authSubtitle: { color: UI.muted, textAlign: 'center', marginBottom: 8, fontSize: 16, lineHeight: 23 },
+  authFinePrint: { color: UI.muted, fontSize: 13, textAlign: 'center', marginTop: 6, lineHeight: 18 },
+  authErrorText: { color: UI.danger, fontSize: 13, fontWeight: '800', textAlign: 'center', marginTop: 6 },
   authTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  authTopRowPinned: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  authUserText: { color: '#94a3b8', fontSize: 12, flex: 1, marginRight: 8 },
-  authUserTextPinned: { color: '#94a3b8', fontSize: 12, flex: 1, marginRight: 8, textAlign: 'left' },
-  authActionsRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  authRefreshBtn: { backgroundColor: '#1d4ed8', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6 },
-  authSignOutBtn: { backgroundColor: '#334155', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6 },
-  authSignOutText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  loginBtnCompact: { backgroundColor: '#2563eb', alignSelf: 'center', borderRadius: 10, paddingHorizontal: 28, paddingVertical: 10, minWidth: 132, marginTop: 6 },
-  passwordInputWrap: { width: '100%', flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', borderRadius: 8, borderWidth: 1, borderColor: '#334155' },
-  passwordInput: { flex: 1, color: 'white', padding: 10, paddingRight: 8 },
+  authTopRowPinned: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
+  authUserText: { color: UI.muted, fontSize: 13, flex: 1, marginRight: 8, fontWeight: '700' },
+  authUserTextPinned: { color: UI.muted, fontSize: 13, flex: 1, marginRight: 8, textAlign: 'left', fontWeight: '800', opacity: 0.9 },
+  authActionsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  authRefreshBtn: { backgroundColor: UI.surfaceWarm, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: UI.border },
+  authSignOutBtn: { backgroundColor: UI.surfaceWarm, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: UI.border },
+  authSignOutText: { color: UI.ink, fontSize: 13, fontWeight: '900' },
+  loginBtnCompact: { backgroundColor: UI.primary, alignSelf: 'center', borderRadius: 16, paddingHorizontal: 34, paddingVertical: 14, minWidth: 150, marginTop: 8 },
+  passwordInputWrap: { width: '100%', flexDirection: 'row', alignItems: 'center', backgroundColor: UI.surface, borderRadius: 16, borderWidth: 1.5, borderColor: UI.border, minHeight: 54 },
+  passwordInput: { flex: 1, color: UI.ink, padding: 14, paddingRight: 8, fontSize: 17 },
   passwordEyeButton: { width: 54, height: 42, alignItems: 'center', justifyContent: 'center' },
   passwordEyeIconImage: { width: 30, height: 30 },
   stayLoggedInRow: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, marginBottom: 2 },
-  checkboxBox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1, borderColor: '#64748b', alignItems: 'center', justifyContent: 'center', backgroundColor: '#1e293b' },
+  checkboxBox: { width: 24, height: 24, borderRadius: 8, borderWidth: 1.5, borderColor: UI.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: UI.surface },
   checkboxBoxOn: { backgroundColor: BRAND.orange, borderColor: BRAND.orange },
   checkboxCheck: { color: '#fff', fontSize: 14, fontWeight: '900', lineHeight: 16 },
-  stayLoggedInText: { color: '#cbd5e1', fontSize: 13, fontWeight: '700' },
-  editBadge: { color: '#fbbf24', textAlign: 'center', marginBottom: 6, fontWeight: '700' },
-  progress: { color: '#93c5fd', marginBottom: 8 },
-  stepTitle: { color: 'white', fontSize: 16, fontWeight: '700', marginBottom: 12 },
-  errorText: { color: '#ef4444', marginBottom: 10, fontWeight: '700' },
-  section: { color: '#93c5fd', fontSize: 16, fontWeight: '700', marginTop: 14, marginBottom: 10 },
-  syncDebugStrip: { backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#334155', borderRadius: 8, padding: 8, marginBottom: 8, gap: 2 },
-  syncDebugText: { color: '#94a3b8', fontSize: 12 },
-  label: { color: '#cbd5e1', marginBottom: 4 },
-  input: { backgroundColor: '#1e293b', color: 'white', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#334155' },
+  stayLoggedInText: { color: UI.ink, fontSize: 14, fontWeight: '800' },
+  editBadge: { color: UI.primaryDeep, textAlign: 'center', marginBottom: 8, fontWeight: '900' },
+  progress: { color: UI.secondary, marginBottom: 8, fontSize: 17, fontWeight: '900' },
+  stepTitle: { color: UI.ink, fontSize: 22, fontWeight: '900', marginBottom: 14, letterSpacing: -0.25 },
+  errorText: { color: UI.danger, marginBottom: 12, fontWeight: '800', fontSize: 14 },
+  section: { color: UI.primaryDeep, fontSize: 19, fontWeight: '900', marginTop: 18, marginBottom: 12, letterSpacing: -0.2 },
+  syncDebugStrip: { backgroundColor: UI.surfaceWarm, borderWidth: 1, borderColor: UI.border, borderRadius: 14, padding: 10, marginBottom: 10, gap: 2 },
+  syncDebugText: { color: UI.muted, fontSize: 12 },
+  label: { color: UI.ink, marginBottom: 7, fontSize: 17, fontWeight: '800' },
+  input: { backgroundColor: UI.surface, color: UI.ink, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 16, borderWidth: 1.5, borderColor: UI.border, fontSize: 18, minHeight: 56 },
   photoPreviewWrap: { position: 'relative', marginBottom: 10 },
-  previewPhoto: { width: '100%', height: 220, borderRadius: 10, borderWidth: 1, borderColor: '#334155' },
-  photoOverlayDelete: { position: 'absolute', right: 10, bottom: 10, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(15,23,42,0.9)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#94a3b8' },
-  photoOverlayDeleteText: { fontSize: 16, color: '#f8fafc' },
+  previewPhoto: { width: '100%', height: 230, borderRadius: 22, borderWidth: 2, borderColor: UI.borderStrong },
+  photoOverlayDelete: { position: 'absolute', right: 12, bottom: 12, width: 44, height: 44, borderRadius: 16, backgroundColor: 'rgba(255,253,248,0.94)', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: UI.borderStrong },
+  photoOverlayDeleteText: { fontSize: 17, color: UI.ink },
   cardTopRow: { flexDirection: 'row', alignItems: 'center' },
   titleQtyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 4, marginBottom: 1 },
-  qtyInputInline: { backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#334155', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, minWidth: 50, alignItems: 'center' },
-  qtyText: { color: 'white', fontWeight: '700', fontSize: 13 },
-  cardTextCompact: { color: '#cbd5e1', fontSize: 14, lineHeight: 17 },
-  qtyMenuItem: { paddingVertical: 8, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1f2937' },
+  qtyInputInline: { backgroundColor: UI.secondarySoft, borderWidth: 1, borderColor: '#9accc4', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6, minWidth: 54, alignItems: 'center' },
+  qtyText: { color: UI.secondary, fontWeight: '900', fontSize: 14 },
+  cardTextCompact: { color: UI.muted, fontSize: 15, lineHeight: 20 },
+  qtyMenuItem: { paddingVertical: 11, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: UI.faint },
   qtyDeleteItem: { backgroundColor: 'transparent', marginTop: 6, marginBottom: 4 },
-  qtyMenuText: { color: 'white', fontWeight: '700' },
-  qtyDeleteIcon: { color: '#ef4444', fontWeight: '700', borderWidth: 1, borderColor: '#ef4444', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4 },
-  qtyCustomWrap: { padding: 10, borderTopWidth: 1, borderTopColor: '#1f2937' },
-  qtyCustomLabel: { color: '#cbd5e1', fontSize: 12, marginBottom: 6 },
-  qtyCustomInput: { backgroundColor: '#0f172a', color: '#fff', borderWidth: 1, borderColor: '#334155', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
-  qtyCustomBtn: { marginTop: 8, backgroundColor: '#2563eb', borderRadius: 8, alignItems: 'center', paddingVertical: 8 },
+  qtyMenuText: { color: UI.ink, fontWeight: '900', fontSize: 16 },
+  qtyDeleteIcon: { color: UI.danger, fontWeight: '900', borderWidth: 1, borderColor: '#f1b5ae', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5 },
+  qtyCustomWrap: { padding: 12, borderTopWidth: 1, borderTopColor: UI.faint },
+  qtyCustomLabel: { color: UI.muted, fontSize: 13, fontWeight: '800', marginBottom: 7 },
+  qtyCustomInput: { backgroundColor: UI.surface, color: UI.ink, borderWidth: 1, borderColor: UI.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },
+  qtyCustomBtn: { marginTop: 9, backgroundColor: UI.secondary, borderRadius: 12, alignItems: 'center', paddingVertical: 10 },
   qtyCustomBtnText: { color: '#fff', fontWeight: '700' },
   rightRailCompact: { width: 118, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'flex-end', gap: 4 },
   sideActions: { width: 38, gap: 3 },
-  thumbPhoto: { width: 62, height: 62, borderRadius: 7, borderWidth: 1, borderColor: '#334155' },
-  thumbPlaceholder: { width: 62, height: 62, borderRadius: 7, borderWidth: 1, borderColor: '#334155', alignItems: 'center', justifyContent: 'center' },
+  thumbPhoto: { width: 66, height: 66, borderRadius: 16, borderWidth: 1.5, borderColor: UI.border },
+  thumbPlaceholder: { width: 66, height: 66, borderRadius: 16, borderWidth: 1.5, borderColor: UI.border, alignItems: 'center', justifyContent: 'center', backgroundColor: UI.surfaceWarm },
   smallActionBtn: { width: 38, backgroundColor: 'transparent', borderRadius: 7, paddingVertical: 4, alignItems: 'center' },
   sideActionBtn: { width: 38, paddingVertical: 3 },
-  smallActionText: { color: 'white', fontSize: 14, fontWeight: '700' },
-  smallActionIcon: { color: 'white', fontSize: 16, fontWeight: '700', lineHeight: 18 },
-  pill: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: '#334155', marginRight: 8, backgroundColor: '#1e293b' },
-  pillOn: { backgroundColor: '#1d4ed8', borderColor: '#1d4ed8' },
-  pillText: { color: '#cbd5e1' },
+  smallActionText: { color: UI.ink, fontSize: 15, fontWeight: '900' },
+  smallActionIcon: { color: UI.ink, fontSize: 17, fontWeight: '900', lineHeight: 19 },
+  pill: { paddingHorizontal: 15, paddingVertical: 11, borderRadius: 999, borderWidth: 1.5, borderColor: UI.border, marginRight: 9, backgroundColor: UI.surface },
+  pillOn: { backgroundColor: UI.secondary, borderColor: UI.secondary },
+  pillText: { color: UI.ink, fontSize: 16, fontWeight: '800' },
   pillTextOn: { color: 'white' },
-  navRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginTop: 12 },
-  btn: { flex: 1, backgroundColor: '#22c55e', padding: 12, borderRadius: 10, alignItems: 'center', marginTop: 8 },
-  btnAlt: { backgroundColor: '#0ea5e9' },
-  btnGhost: { backgroundColor: '#334155' },
-  btnDeleteProject: { backgroundColor: '#991b1b' },
+  navRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginTop: 16 },
+  btn: {
+    flex: 1,
+    backgroundColor: UI.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 16,
+    borderRadius: 18,
+    alignItems: 'center',
+    marginTop: 10,
+    minHeight: 58,
+    justifyContent: 'center',
+    shadowColor: UI.primaryDeep,
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 }
+  },
+  btnAlt: { backgroundColor: UI.secondary },
+  btnGhost: { backgroundColor: UI.slate },
+  btnDeleteProject: { backgroundColor: UI.danger },
   btnSaveExit: { backgroundColor: '#f59e0b' },
-  btnText: { color: 'white', fontWeight: '700', textAlign: 'center' },
+  btnText: { color: 'white', fontWeight: '900', textAlign: 'center', fontSize: 18, letterSpacing: -0.1 },
   homePrimaryAction: {
     width: '100%',
-    maxWidth: 360,
+    maxWidth: 420,
     alignSelf: 'center',
-    backgroundColor: BRAND.orange,
-    borderRadius: 10,
+    backgroundColor: UI.primary,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#fb923c',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginTop: 12,
-    marginBottom: 8,
+    borderColor: '#fed7aa',
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    marginTop: 16,
+    marginBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 5 }
+    shadowColor: UI.primaryDeep,
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 }
   },
-  homePrimaryActionIcon: { width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center', marginRight: 11 },
-  homePrimaryActionIconText: { color: '#fff', fontSize: 22, fontWeight: '900', lineHeight: 24 },
+  homePrimaryActionIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center', marginRight: 13 },
+  homePrimaryActionIconText: { color: '#fff', fontSize: 26, fontWeight: '900', lineHeight: 28 },
   homePrimaryActionCopy: { alignItems: 'flex-start' },
-  homePrimaryActionText: { color: '#fff', fontSize: 17, fontWeight: '900', lineHeight: 20 },
-  homePrimaryActionSubtext: { color: '#fff7ed', fontSize: 12, fontWeight: '700', marginTop: 1 },
-  card: { backgroundColor: '#1e293b', borderColor: '#334155', borderWidth: 1, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 6, marginBottom: 6, overflow: 'visible' },
-  cardTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
-  cardTitle: { color: 'white', fontWeight: '700', marginBottom: 1, fontSize: 15, lineHeight: 18 },
+  homePrimaryActionText: { color: '#fff', fontSize: 20, fontWeight: '900', lineHeight: 24, letterSpacing: -0.2 },
+  homePrimaryActionSubtext: { color: '#fff7ed', fontSize: 14, fontWeight: '800', marginTop: 2 },
+  card: {
+    backgroundColor: UI.surface,
+    borderColor: UI.border,
+    borderWidth: 1.5,
+    borderRadius: 22,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 10,
+    overflow: 'visible',
+    shadowColor: '#8b6f5e',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 }
+  },
+  cardTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  cardTitle: { color: UI.ink, fontWeight: '900', marginBottom: 2, fontSize: 18, lineHeight: 22 },
   summaryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 },
   summarySyncWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14, marginBottom: 8, flexShrink: 1, justifyContent: 'flex-end' },
-  summarySyncText: { color: '#cbd5e1', fontSize: 12, fontWeight: '700', textAlign: 'right' },
-  summaryInfoCard: { position: 'relative', backgroundColor: '#1e293b', borderColor: '#334155', borderWidth: 1, borderRadius: 12, padding: 12, paddingTop: 16, marginBottom: 10 },
-  summaryEditPencil: { position: 'absolute', right: 10, top: 6, width: 34, height: 34, borderRadius: 10, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#475569', alignItems: 'center', justifyContent: 'center', zIndex: 2 },
-  openingDetailCard: { width: '92%', maxWidth: 520, maxHeight: '84%', backgroundColor: '#111827', borderWidth: 1, borderColor: '#334155', borderRadius: 14, padding: 14 },
+  summarySyncText: { color: UI.secondary, fontSize: 13, fontWeight: '900', textAlign: 'right' },
+  summaryInfoCard: { position: 'relative', backgroundColor: UI.surface, borderColor: UI.border, borderWidth: 1.5, borderRadius: 24, padding: 16, paddingTop: 20, marginBottom: 12 },
+  summaryEditPencil: { position: 'absolute', right: 12, top: 8, width: 42, height: 42, borderRadius: 15, backgroundColor: UI.surfaceWarm, borderWidth: 1.5, borderColor: UI.border, alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+  openingDetailCard: { width: '92%', maxWidth: 540, maxHeight: '84%', backgroundColor: UI.surface, borderWidth: 1.5, borderColor: UI.border, borderRadius: 26, padding: 18 },
   openingDetailHeader: { position: 'relative', paddingRight: 64, paddingTop: 6, marginBottom: 8 },
-  openingDetailCloseBtn: { position: 'absolute', right: 4, top: 1, width: 32, height: 32, borderRadius: 10, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#475569', alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+  openingDetailCloseBtn: { position: 'absolute', right: 4, top: 1, width: 38, height: 38, borderRadius: 14, backgroundColor: UI.surfaceWarm, borderWidth: 1.5, borderColor: UI.borderStrong, alignItems: 'center', justifyContent: 'center', zIndex: 2 },
   syncLegendRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   syncFooterRow: { marginTop: 4, alignItems: 'flex-end', minHeight: 20 },
-  syncBadgeSynced: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#16a34a', borderWidth: 1, borderColor: '#bbf7d0', alignItems: 'center', justifyContent: 'center', marginRight: 0 },
-  syncBadgePending: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#64748b', borderWidth: 1, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center', marginRight: 0 },
+  syncBadgeSynced: { width: 20, height: 20, borderRadius: 10, backgroundColor: UI.secondary, borderWidth: 1, borderColor: UI.secondarySoft, alignItems: 'center', justifyContent: 'center', marginRight: 0 },
+  syncBadgePending: { width: 20, height: 20, borderRadius: 10, backgroundColor: UI.slate, borderWidth: 1, borderColor: UI.borderStrong, alignItems: 'center', justifyContent: 'center', marginRight: 0 },
   syncBadgeText: { color: '#fff', fontSize: 12, fontWeight: '900', lineHeight: 13 },
   scanStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-  scanStatusText: { color: '#cbd5e1', fontSize: 12, lineHeight: 16, marginTop: 6 },
-  unfinishedBadge: { color: '#fbbf24', fontSize: 11, fontWeight: '800', borderWidth: 1, borderColor: '#fbbf24', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
-  rowDeleteX: { width: 18, height: 18, borderRadius: 4, backgroundColor: '#dc2626', alignItems: 'center', justifyContent: 'center' },
-  rowDeleteXFloating: { position: 'absolute', right: 8, top: 6, width: 18, height: 18, borderRadius: 4, backgroundColor: '#dc2626', alignItems: 'center', justifyContent: 'center', zIndex: 6 },
+  scanStatusText: { color: UI.muted, fontSize: 12, lineHeight: 16, marginTop: 6 },
+  unfinishedBadge: { color: UI.primaryDeep, fontSize: 12, fontWeight: '900', borderWidth: 1, borderColor: '#fdba74', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, backgroundColor: '#fff7ed' },
+  rowDeleteX: { width: 22, height: 22, borderRadius: 8, backgroundColor: UI.danger, alignItems: 'center', justifyContent: 'center' },
+  rowDeleteXFloating: { position: 'absolute', right: 10, top: 8, width: 22, height: 22, borderRadius: 8, backgroundColor: UI.danger, alignItems: 'center', justifyContent: 'center', zIndex: 6 },
   rowDeleteXText: { color: '#fff', fontSize: 11, fontWeight: '800', lineHeight: 12 },
-  cardText: { color: '#cbd5e1', fontSize: 12, lineHeight: 14, marginBottom: 1 },
+  cardText: { color: UI.muted, fontSize: 14, lineHeight: 18, marginBottom: 2 },
   rowGap: { gap: 8, marginTop: 10 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
-  summaryLabel: { color: '#94a3b8' },
-  summaryValue: { color: 'white', maxWidth: '65%', textAlign: 'right' },
+  summaryLabel: { color: UI.muted, fontSize: 15, fontWeight: '800' },
+  summaryValue: { color: UI.ink, maxWidth: '65%', textAlign: 'right', fontSize: 15, fontWeight: '900' },
   summaryValueMultiline: { textAlign: 'left', maxWidth: '60%' },
-  footerLine: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#334155' },
-  footerLineText: { color: '#e2e8f0', fontWeight: '700' },
-  lockedRow: { backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155', borderRadius: 8, padding: 10, marginBottom: 10 },
-  lockedText: { color: '#e2e8f0', fontWeight: '700' },
-  reportChooser: { backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155', borderRadius: 10, padding: 10 },
+  footerLine: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: UI.faint },
+  footerLineText: { color: UI.ink, fontWeight: '900', fontSize: 15 },
+  lockedRow: { backgroundColor: UI.surfaceWarm, borderWidth: 1, borderColor: UI.border, borderRadius: 16, padding: 13, marginBottom: 12 },
+  lockedText: { color: UI.ink, fontWeight: '800' },
+  reportChooser: { backgroundColor: UI.surface, borderWidth: 1.5, borderColor: UI.border, borderRadius: 20, padding: 14 },
   reportChooserActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  swipeHint: { color: '#fca5a5', fontSize: 11, marginTop: 6 },
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  qtyPickerCard: { width: 120, maxHeight: 420, backgroundColor: '#111827', borderWidth: 1, borderColor: '#334155', borderRadius: 10, overflow: 'hidden' },
-  confirmCard: { width: '86%', maxWidth: 360, backgroundColor: '#111827', borderWidth: 1, borderColor: '#334155', borderRadius: 12, padding: 14 },
-  confirmTitle: { color: '#fff', fontSize: 18, fontWeight: '800', lineHeight: 24, marginBottom: 8 },
-  confirmBody: { color: '#cbd5e1', fontSize: 15, lineHeight: 22 },
+  swipeHint: { color: UI.danger, fontSize: 12, fontWeight: '800', marginTop: 7 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(37,48,64,0.35)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  qtyPickerCard: { width: 138, maxHeight: 420, backgroundColor: UI.surface, borderWidth: 1.5, borderColor: UI.border, borderRadius: 18, overflow: 'hidden' },
+  confirmCard: { width: '88%', maxWidth: 390, backgroundColor: UI.surface, borderWidth: 1.5, borderColor: UI.border, borderRadius: 24, padding: 20 },
+  confirmTitle: { color: UI.ink, fontSize: 20, fontWeight: '700', lineHeight: 27, marginBottom: 8 },
+  confirmBody: { color: UI.muted, fontSize: 16, lineHeight: 23, fontWeight: '700' },
   confirmActions: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginTop: 12 },
   confirmBtn: { flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
-  confirmNo: { backgroundColor: '#334155' },
-  confirmYes: { backgroundColor: '#991b1b' },
+  confirmNo: { backgroundColor: UI.slate },
+  confirmYes: { backgroundColor: UI.danger },
   confirmBtnText: { color: 'white', fontSize: 16, fontWeight: '800' },
   confirmIcon: { color: 'white', fontSize: 18, fontWeight: '800' },
 });
