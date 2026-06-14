@@ -276,7 +276,7 @@ export default function App() {
     ? "You're working offline — saving locally now. Cloud backup will resume instantly when reception returns."
     : syncState === 'syncing'
       ? 'Saving to cloud backup…'
-      : 'Saved locally. Cloud backup retrying in background…';
+      : `Saved locally. Cloud backup retrying in background${lastSyncError ? `: ${lastSyncError}` : '…'}`;
 
   const pruneToOneYear = (items) => {
     const cutoff = Date.now() - 365 * 24 * 60 * 60 * 1000;
@@ -707,7 +707,10 @@ export default function App() {
       await persistArchive(nextArchive);
       await enqueueChange({ entity: 'measurement', entityId: payload.id, op: 'upsert', payload: sanitizeMeasurementForCloud(payload) });
       const syncResult = await syncNow();
-      if (!syncResult?.ok) {
+      if (syncResult?.ok) {
+        setCloudSavedAtById(prev => ({ ...prev, [payload.id]: payload.savedAt }));
+        setCloudOpeningsCountById(prev => ({ ...prev, [payload.id]: nextOpenings.length }));
+      } else {
         Alert.alert('Saved locally', 'Measurement is saved on this device and will upload to cloud automatically when connection/service is available.');
       }
     } catch {
@@ -727,6 +730,7 @@ export default function App() {
     if (ok) {
       await clearDraft();
       setStep(totalSteps);
+      Alert.alert('Opening saved', `This project now has ${openings.length + (editIndex === null ? 1 : 0)} saved opening${openings.length + (editIndex === null ? 1 : 0) === 1 ? '' : 's'}.`);
     }
   };
 
@@ -892,7 +896,11 @@ export default function App() {
     if (!payload) return;
 
     await enqueueChange({ entity: 'measurement', entityId: payload.id, op: 'upsert', payload: sanitizeMeasurementForCloud(payload) });
-    await syncNow();
+    const syncResult = await syncNow();
+    if (syncResult?.ok) {
+      setCloudSavedAtById(prev => ({ ...prev, [payload.id]: payload.savedAt }));
+      setCloudOpeningsCountById(prev => ({ ...prev, [payload.id]: Array.isArray(payload.openings) ? payload.openings.length : 0 }));
+    }
 
     if (!silent) Alert.alert('Saved', 'Job saved to 1-year measurement archive.');
   };

@@ -23,6 +23,7 @@ export const SCAN_FIELD_SCHEMA = {
 
 const CREDIT_CARD_WIDTH_IN = 3.375;
 const STICKER_ONE_INCH = 1.0;
+const SCANNER_MODEL = 'google/gemini-2.5-flash';
 const COMMON_GUESS_PAIRS = new Set(['54x72', '72x54', '36x48', '48x36', '48x60', '60x48']);
 
 function getImageSizeAsync(uri, Image) {
@@ -65,7 +66,7 @@ function classifyWindowType(aspect, hasHorizontalSplit, hasVerticalSplit) {
 
 /**
  * DimensionSnap Pro Logic: "Blackbriar" Sprint Edition
- * AI-Driven Measurement via Gemini 2.0 Vision.
+ * AI-Driven Measurement via a current OpenRouter vision model.
  */
 
 const OPENROUTER_API_KEY = process.env.EXPO_PUBLIC_OPENROUTER_KEY;
@@ -85,6 +86,20 @@ function extractJsonObject(text = '') {
     throw new Error('Scanner did not return JSON.');
   }
   return JSON.parse(cleaned.slice(start, end + 1));
+}
+
+function formatScannerRequestError(status, message) {
+  let parsedMessage = message;
+  try {
+    const parsed = JSON.parse(message);
+    parsedMessage = parsed?.error?.message || parsed?.message || message;
+  } catch {}
+
+  if (status === 404 && /No endpoints found/i.test(parsedMessage)) {
+    return `Scanner model is unavailable on OpenRouter. Model: ${SCANNER_MODEL}.`;
+  }
+
+  return `Scanner request failed: ${status} ${parsedMessage}`;
 }
 
 function numeric(value) {
@@ -166,7 +181,7 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, useCreditCard 
     : 'Find the 1-inch square sticker/marker. Use one visible side of the square as exactly 1.0 inch.';
   const knownReferenceWidthIn = useCreditCard ? CREDIT_CARD_WIDTH_IN : STICKER_ONE_INCH;
 
-  // 1. Identify and Measure via Gemini 2.0 Flash (Fast + Vision Capable)
+  // 1. Identify and Measure via the configured OpenRouter vision model.
   try {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -177,7 +192,7 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, useCreditCard 
         'X-Title': 'DimensionsPro'
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-001',
+        model: SCANNER_MODEL,
         messages: [
           {
             role: 'user',
@@ -206,7 +221,7 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, useCreditCard 
 
     if (!response.ok) {
       const message = await response.text();
-      throw new Error(`Scanner request failed: ${response.status} ${message}`);
+      throw new Error(formatScannerRequestError(response.status, message));
     }
 
     const data = await response.json();
@@ -217,7 +232,7 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, useCreditCard 
     return {
       meta: {
         version: 'blackbriar-v2.0-vision',
-        engine: 'gemini-2.0-flash',
+        engine: SCANNER_MODEL,
         measurementSource: measured.source,
         referenceDetected: measured.referenceDetected,
         referenceWidthPx: measured.referenceWidthPx,
