@@ -122,8 +122,9 @@ export default function App() {
   const [measurementId, setMeasurementId] = useState(newMeasurementId());
   const [qtyPickerIndex, setQtyPickerIndex] = useState(null);
   const [qtyCustomValue, setQtyCustomValue] = useState('');
-  const [confirmState, setConfirmState] = useState({ visible: false, message: '', onConfirm: null });
+  const [confirmState, setConfirmState] = useState({ visible: false, title: '', message: '', confirmLabel: 'Confirm', cancelLabel: 'Cancel', onConfirm: null });
   const [showJobInfoEditor, setShowJobInfoEditor] = useState(false);
+  const [openingDetailIndex, setOpeningDetailIndex] = useState(null);
   const [offlineMode, setOfflineMode] = useState(false);
   const [syncState, setSyncState] = useState('synced'); // syncing | synced | offline | error
   const [pendingMeasurementIds, setPendingMeasurementIds] = useState(new Set());
@@ -206,6 +207,7 @@ export default function App() {
   };
 
   const currentMeasurementSyncStatus = getMeasurementSyncStatus(savedJobs.find(x => x.id === measurementId) || { id: measurementId, savedAt: 0 });
+  const selectedOpeningDetail = openingDetailIndex !== null ? openings[openingDetailIndex] || null : null;
 
   const archiveKey = 'dimensions_pro_archive_v1';
   const trashKey = 'dimensions_pro_trash_v1';
@@ -1054,11 +1056,18 @@ export default function App() {
     } catch {}
   };
 
-  const openConfirm = (message, onConfirm) => {
-    setConfirmState({ visible: true, message, onConfirm });
+  const openConfirm = (message, onConfirm, options = {}) => {
+    setConfirmState({
+      visible: true,
+      title: options.title || 'Please Confirm',
+      message,
+      confirmLabel: options.confirmLabel || 'Confirm',
+      cancelLabel: options.cancelLabel || 'Cancel',
+      onConfirm
+    });
   };
 
-  const closeConfirm = () => setConfirmState({ visible: false, message: '', onConfirm: null });
+  const closeConfirm = () => setConfirmState({ visible: false, title: '', message: '', confirmLabel: 'Confirm', cancelLabel: 'Cancel', onConfirm: null });
 
   const deleteArchivedJob = async (id) => {
     const target = savedJobs.find(x => x.id === id);
@@ -1103,40 +1112,48 @@ export default function App() {
   };
 
   const confirmDeleteArchivedJob = (id, name) => {
-    openConfirm(`Delete "${name || 'this measurement'}"?`, async () => {
-      playDeleteSound();
-      await deleteArchivedJob(id);
-      closeConfirm();
-    });
+    openConfirm(
+      'Your project will be moved to Trash and can be restored for 24 hours.',
+      async () => {
+        playDeleteSound();
+        await deleteArchivedJob(id);
+        closeConfirm();
+      },
+      { title: `Do you want to delete "${name || 'this project'}"?`, confirmLabel: 'Delete', cancelLabel: 'Cancel' }
+    );
   };
 
   const deleteOpening = (idx) => {
-    openConfirm('Remove this item from the current measurement?', async () => {
-      playDeleteSound();
-      if (openings.length <= 1) {
-        const target = savedJobs.find(x => x.id === measurementId);
-        const nextArchive = savedJobs.filter(x => x.id !== measurementId);
-        await persistArchive(nextArchive);
-        if (target) {
-          const nextTrash = [{ ...target, trashedAt: new Date().toISOString() }, ...trashJobs.filter(t => t.id !== measurementId)];
-          await persistTrash(nextTrash);
+    openConfirm(
+      'This will remove the selected opening from the current measurement.',
+      async () => {
+        playDeleteSound();
+        if (openings.length <= 1) {
+          const target = savedJobs.find(x => x.id === measurementId);
+          const nextArchive = savedJobs.filter(x => x.id !== measurementId);
+          await persistArchive(nextArchive);
+          if (target) {
+            const nextTrash = [{ ...target, trashedAt: new Date().toISOString() }, ...trashJobs.filter(t => t.id !== measurementId)];
+            await persistTrash(nextTrash);
+          }
+          await clearDraft();
+          setOpenings([]);
+          setOpening(emptyOpening);
+          setMeasurementId(newMeasurementId());
+          setEditIndex(null);
+          setEditOpeningUid(null);
+          setEntryMode('create');
+          setShowArchive(false);
+          setArchiveQuery('');
+          setShowHome(true);
+          closeConfirm();
+          return;
         }
-        await clearDraft();
-        setOpenings([]);
-        setOpening(emptyOpening);
-        setMeasurementId(newMeasurementId());
-        setEditIndex(null);
-        setEditOpeningUid(null);
-        setEntryMode('create');
-        setShowArchive(false);
-        setArchiveQuery('');
-        setShowHome(true);
+        setOpenings(prev => prev.filter((_, i) => i !== idx));
         closeConfirm();
-        return;
-      }
-      setOpenings(prev => prev.filter((_, i) => i !== idx));
-      closeConfirm();
-    });
+      },
+      { title: 'Remove Opening?', confirmLabel: 'Delete', cancelLabel: 'Cancel' }
+    );
   };
 
   const openArchivedJob = (saved) => {
@@ -1911,13 +1928,14 @@ export default function App() {
         <Modal visible={confirmState.visible} transparent animationType="fade" onRequestClose={closeConfirm}>
           <Pressable style={styles.modalBackdrop} onPress={closeConfirm}>
             <View style={styles.confirmCard}>
-              <Text style={styles.cardTitle}>{confirmState.message}</Text>
+              <Text style={styles.confirmTitle}>{confirmState.title}</Text>
+              <Text style={styles.confirmBody}>{confirmState.message}</Text>
               <View style={styles.confirmActions}>
                 <TouchableOpacity style={[styles.confirmBtn, styles.confirmNo]} onPress={closeConfirm}>
-                  <Text style={styles.confirmIcon}>✖</Text>
+                  <Text style={styles.confirmBtnText}>{confirmState.cancelLabel}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.confirmBtn, styles.confirmYes]} onPress={() => confirmState.onConfirm && confirmState.onConfirm()}>
-                  <Text style={styles.confirmIcon}>✔</Text>
+                  <Text style={styles.confirmBtnText}>{confirmState.confirmLabel}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1966,38 +1984,40 @@ export default function App() {
             <Text style={styles.section}>Openings ({counts.total} items across {counts.lines} lines)</Text>
             {openings.map((o, i) => (
               <View key={`${o.openingCode}-${i}`} style={styles.card}>
-                <View style={styles.cardTopRow}>
-                  <View style={{ flex: 1, paddingRight: 8, justifyContent: 'flex-start' }}>
-                    <View style={styles.titleQtyRow}>
-                      <Text style={styles.cardTitle} numberOfLines={1}>{o.room} • {o.openingCode} • {o.openingType} ({o.subtype})</Text>
-                      <TouchableOpacity style={styles.qtyInputInline} onPress={() => setQtyPickerIndex(i)}>
-                        <Text style={styles.qtyText}>{(o.qty || '1').toString()} ▼</Text>
-                      </TouchableOpacity>
-                      <View style={currentMeasurementSyncStatus === 'synced' ? styles.syncBadgeSynced : styles.syncBadgePending}>
-                        <Text style={styles.syncBadgeText}>{currentMeasurementSyncStatus === 'synced' ? '✓' : '…'}</Text>
+                <TouchableOpacity onPress={() => setOpeningDetailIndex(i)} activeOpacity={0.85}>
+                  <View style={styles.cardTopRow}>
+                    <View style={{ flex: 1, paddingRight: 8, justifyContent: 'flex-start' }}>
+                      <View style={styles.titleQtyRow}>
+                        <Text style={styles.cardTitle} numberOfLines={1}>{o.room} • {o.openingCode} • {o.openingType} ({o.subtype})</Text>
+                        <TouchableOpacity style={styles.qtyInputInline} onPress={() => setQtyPickerIndex(i)}>
+                          <Text style={styles.qtyText}>{(o.qty || '1').toString()} ▼</Text>
+                        </TouchableOpacity>
+                        <View style={currentMeasurementSyncStatus === 'synced' ? styles.syncBadgeSynced : styles.syncBadgePending}>
+                          <Text style={styles.syncBadgeText}>{currentMeasurementSyncStatus === 'synced' ? '✓' : '…'}</Text>
+                        </View>
+                      </View>
+
+                      <Text style={styles.cardTextCompact} numberOfLines={2}>
+                        {o.width}" x {o.height}"{o.openingType === 'Skylight' ? '' : ` | Jamb ${o.jamb}" | ${o.basis} | ${o.installType}`} | {o.operation}
+                      </Text>
+                    </View>
+
+                    <View style={styles.rightRailCompact}>
+                      {(o.photoDataUri || o.photoUri) ? <Image source={{ uri: o.photoDataUri || o.photoUri }} style={styles.thumbPhoto} /> : <View style={styles.thumbPlaceholder}><Text style={styles.cardText}>No photo</Text></View>}
+                      <View style={styles.sideActions}>
+                        <TouchableOpacity style={[styles.smallActionBtn, styles.sideActionBtn]} onPress={() => editOpening(i)}>
+                          <Text style={styles.smallActionIcon}>✏️</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.smallActionBtn, styles.sideActionBtn]} onPress={() => copyOpening(i)}>
+                          <Text style={styles.smallActionIcon}>⧉</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.smallActionBtn, styles.sideActionBtn]} onPress={() => deleteOpening(i)}>
+                          <Text style={styles.smallActionIcon}>🗑</Text>
+                        </TouchableOpacity>
                       </View>
                     </View>
-
-                    <Text style={styles.cardTextCompact} numberOfLines={2}>
-                      {o.width}" x {o.height}"{o.openingType === 'Skylight' ? '' : ` | Jamb ${o.jamb}" | ${o.basis} | ${o.installType}`} | {o.operation}
-                    </Text>
                   </View>
-
-                  <View style={styles.rightRailCompact}>
-                    {(o.photoDataUri || o.photoUri) ? <Image source={{ uri: o.photoDataUri || o.photoUri }} style={styles.thumbPhoto} /> : <View style={styles.thumbPlaceholder}><Text style={styles.cardText}>No photo</Text></View>}
-                    <View style={styles.sideActions}>
-                      <TouchableOpacity style={[styles.smallActionBtn, styles.sideActionBtn]} onPress={() => editOpening(i)}>
-                        <Text style={styles.smallActionIcon}>✏️</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.smallActionBtn, styles.sideActionBtn]} onPress={() => copyOpening(i)}>
-                        <Text style={styles.smallActionIcon}>⧉</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.smallActionBtn, styles.sideActionBtn]} onPress={() => deleteOpening(i)}>
-                        <Text style={styles.smallActionIcon}>🗑</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </View>
+                </TouchableOpacity>
               </View>
             ))}
 
@@ -2149,16 +2169,69 @@ export default function App() {
         </Pressable>
       </Modal>
 
+      <Modal visible={openingDetailIndex !== null} transparent animationType="slide" onRequestClose={() => setOpeningDetailIndex(null)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setOpeningDetailIndex(null)}>
+          <Pressable style={styles.openingDetailCard} onPress={() => {}}>
+            {selectedOpeningDetail ? (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <View style={styles.openingDetailHeader}>
+                  <Text style={styles.cardTitle}>
+                    {selectedOpeningDetail.room || '-'} • {selectedOpeningDetail.openingCode || '-'}
+                  </Text>
+                  <TouchableOpacity style={styles.openingDetailCloseBtn} onPress={() => setOpeningDetailIndex(null)}>
+                    <Text style={styles.smallActionIcon}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+                <OpeningDetailRow label="Opening type" value={`${selectedOpeningDetail.openingType || '-'}${selectedOpeningDetail.subtype ? ` (${selectedOpeningDetail.subtype})` : ''}`} />
+                <OpeningDetailRow label="Quantity" value={selectedOpeningDetail.qty || '1'} />
+                <OpeningDetailRow label="Width" value={selectedOpeningDetail.width ? `${selectedOpeningDetail.width}"` : '-'} />
+                <OpeningDetailRow label="Height" value={selectedOpeningDetail.height ? `${selectedOpeningDetail.height}"` : '-'} />
+                <OpeningDetailRow label="Operation" value={selectedOpeningDetail.operation || '-'} />
+                {selectedOpeningDetail.openingType !== 'Skylight' ? <OpeningDetailRow label="Jamb" value={selectedOpeningDetail.jamb ? `${selectedOpeningDetail.jamb}"` : '-'} /> : null}
+                {selectedOpeningDetail.openingType !== 'Skylight' ? <OpeningDetailRow label="Measurement basis" value={selectedOpeningDetail.basis || '-'} /> : null}
+                {selectedOpeningDetail.openingType !== 'Skylight' ? <OpeningDetailRow label="Installation type" value={selectedOpeningDetail.installType || '-'} /> : null}
+                <OpeningDetailRow label="Glass type" value={selectedOpeningDetail.glassType || (selectedOpeningDetail.glassSelections || []).join(' + ') || '-'} />
+                <OpeningDetailRow label="Tempered" value={selectedOpeningDetail.tempered || '-'} />
+                <OpeningDetailRow label="Fire zone" value={selectedOpeningDetail.fireZone || '-'} />
+                <OpeningDetailRow label="Falling hazard" value={selectedOpeningDetail.fallingHazard || '-'} />
+                <OpeningDetailRow label="Egress" value={selectedOpeningDetail.egress || '-'} />
+                <OpeningDetailRow label="Grids" value={selectedOpeningDetail.grids || '-'} />
+                {selectedOpeningDetail.gridType ? <OpeningDetailRow label="Grid type" value={selectedOpeningDetail.gridType} /> : null}
+                {selectedOpeningDetail.gridDesign ? <OpeningDetailRow label="Grid design" value={selectedOpeningDetail.gridDesign} /> : null}
+                <OpeningDetailRow label="Existing type" value={selectedOpeningDetail.existingType || '-'} />
+                <OpeningDetailRow label="General notes" value={selectedOpeningDetail.notes || '-'} multiline />
+                <OpeningDetailRow label="Photo notes" value={selectedOpeningDetail.photoNote || '-'} multiline />
+
+                {(selectedOpeningDetail.photoDataUri || selectedOpeningDetail.photoUri) ? (
+                  <>
+                    <Text style={styles.section}>Primary Photo</Text>
+                    <Image source={{ uri: selectedOpeningDetail.photoDataUri || selectedOpeningDetail.photoUri }} style={styles.previewPhoto} />
+                  </>
+                ) : null}
+
+                {(selectedOpeningDetail.extraPhotoDataUri || selectedOpeningDetail.extraPhotoUri) ? (
+                  <>
+                    <Text style={styles.section}>Extra Photo</Text>
+                    <Image source={{ uri: selectedOpeningDetail.extraPhotoDataUri || selectedOpeningDetail.extraPhotoUri }} style={styles.previewPhoto} />
+                  </>
+                ) : null}
+              </ScrollView>
+            ) : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <Modal visible={confirmState.visible} transparent animationType="fade" onRequestClose={closeConfirm}>
         <Pressable style={styles.modalBackdrop} onPress={closeConfirm}>
           <View style={styles.confirmCard}>
-            <Text style={styles.cardTitle}>{confirmState.message}</Text>
+            <Text style={styles.confirmTitle}>{confirmState.title}</Text>
+            <Text style={styles.confirmBody}>{confirmState.message}</Text>
             <View style={styles.confirmActions}>
               <TouchableOpacity style={[styles.confirmBtn, styles.confirmNo]} onPress={closeConfirm}>
-                <Text style={styles.confirmIcon}>X</Text>
+                <Text style={styles.confirmBtnText}>{confirmState.cancelLabel}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.confirmBtn, styles.confirmYes]} onPress={() => confirmState.onConfirm && confirmState.onConfirm()}>
-                <Text style={styles.confirmIcon}>✓</Text>
+                <Text style={styles.confirmBtnText}>{confirmState.confirmLabel}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2485,6 +2558,15 @@ function SummaryRow({ label, value }) {
   );
 }
 
+function OpeningDetailRow({ label, value, multiline = false }) {
+  return (
+    <View style={[styles.summaryRow, multiline ? { alignItems: 'flex-start' } : null]}>
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text style={[styles.summaryValue, multiline ? styles.summaryValueMultiline : null]}>{value || '-'}</Text>
+    </View>
+  );
+}
+
 function OperationSubmenu({ opening, setOpening }) {
   if (opening.openingType === 'Door') {
     if (opening.subtype === 'Multi-slide') {
@@ -2784,6 +2866,7 @@ const styles = StyleSheet.create({
   btn: { flex: 1, backgroundColor: '#22c55e', padding: 12, borderRadius: 10, alignItems: 'center', marginTop: 8 },
   btnAlt: { backgroundColor: '#0ea5e9' },
   btnGhost: { backgroundColor: '#334155' },
+  btnDeleteProject: { backgroundColor: '#991b1b' },
   btnSaveExit: { backgroundColor: '#f59e0b' },
   btnText: { color: 'white', fontWeight: '700', textAlign: 'center' },
   homePrimaryAction: {
@@ -2818,7 +2901,10 @@ const styles = StyleSheet.create({
   summarySyncWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14, marginBottom: 8, flexShrink: 1, justifyContent: 'flex-end' },
   summarySyncText: { color: '#cbd5e1', fontSize: 12, fontWeight: '700', textAlign: 'right' },
   summaryInfoCard: { position: 'relative', backgroundColor: '#1e293b', borderColor: '#334155', borderWidth: 1, borderRadius: 12, padding: 12, paddingTop: 16, marginBottom: 10 },
-  summaryEditPencil: { position: 'absolute', right: 10, top: 10, width: 34, height: 34, borderRadius: 10, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#475569', alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+  summaryEditPencil: { position: 'absolute', right: 10, top: 6, width: 34, height: 34, borderRadius: 10, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#475569', alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+  openingDetailCard: { width: '92%', maxWidth: 520, maxHeight: '84%', backgroundColor: '#111827', borderWidth: 1, borderColor: '#334155', borderRadius: 14, padding: 14 },
+  openingDetailHeader: { position: 'relative', paddingRight: 64, paddingTop: 6, marginBottom: 8 },
+  openingDetailCloseBtn: { position: 'absolute', right: 4, top: 1, width: 32, height: 32, borderRadius: 10, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#475569', alignItems: 'center', justifyContent: 'center', zIndex: 2 },
   syncLegendRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   syncFooterRow: { marginTop: 4, alignItems: 'flex-end', minHeight: 20 },
   syncBadgeSynced: { width: 20, height: 20, borderRadius: 10, backgroundColor: 'BRAND.orange', borderWidth: 1, borderColor: '#bbf7d0', alignItems: 'center', justifyContent: 'center', marginRight: 0 },
@@ -2833,6 +2919,7 @@ const styles = StyleSheet.create({
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
   summaryLabel: { color: '#94a3b8' },
   summaryValue: { color: 'white', maxWidth: '65%', textAlign: 'right' },
+  summaryValueMultiline: { textAlign: 'left', maxWidth: '60%' },
   footerLine: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#334155' },
   footerLineText: { color: '#e2e8f0', fontWeight: '700' },
   lockedRow: { backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155', borderRadius: 8, padding: 10, marginBottom: 10 },
@@ -2843,9 +2930,12 @@ const styles = StyleSheet.create({
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   qtyPickerCard: { width: 120, maxHeight: 420, backgroundColor: '#111827', borderWidth: 1, borderColor: '#334155', borderRadius: 10, overflow: 'hidden' },
   confirmCard: { width: '86%', maxWidth: 360, backgroundColor: '#111827', borderWidth: 1, borderColor: '#334155', borderRadius: 12, padding: 14 },
+  confirmTitle: { color: '#fff', fontSize: 18, fontWeight: '800', lineHeight: 24, marginBottom: 8 },
+  confirmBody: { color: '#cbd5e1', fontSize: 15, lineHeight: 22 },
   confirmActions: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginTop: 12 },
   confirmBtn: { flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
-  confirmNo: { backgroundColor: '#7f1d1d' },
-  confirmYes: { backgroundColor: '#166534' },
+  confirmNo: { backgroundColor: '#334155' },
+  confirmYes: { backgroundColor: '#991b1b' },
+  confirmBtnText: { color: 'white', fontSize: 16, fontWeight: '800' },
   confirmIcon: { color: 'white', fontSize: 18, fontWeight: '800' },
 });
