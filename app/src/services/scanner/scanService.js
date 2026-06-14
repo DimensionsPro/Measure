@@ -185,7 +185,7 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, expectedOpenin
         'Height target: from the top head-frame edge to the bottom sill/threshold edge.',
         'Use the color/material boundary where the door frame changes to surrounding stucco, wall, casing, molding, or trim.',
         'Do not measure only glass, only one sliding panel, one operable sash, screen frame, center meeting rail, decorative molding, wall trim, or stucco opening.',
-        'If blue/light-blue guide lines are drawn on the photo, treat those guide lines as the intended measurement edges.'
+        'Assume normal field photos have no guide marks. If the outer frame edges cannot be confidently separated from same-color molding, trim, wall, glare, or shadows, return low confidence and null dimensions.'
       ].join(' ')
     : expectedOpeningType === 'Skylight'
       ? 'This is expected to be a skylight. Measure the full visible skylight frame/curb, not only the glass daylight opening.'
@@ -194,7 +194,7 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, expectedOpenin
           'Measure the full visible window unit/frame rectangle from outer frame edge to outer frame edge.',
           'Use the color/material boundary where the window frame changes to surrounding wall, casing, molding, or trim.',
           'Do not measure only glass, one sash, daylight opening, decorative molding, wall trim, or stucco opening.',
-          'If blue/light-blue guide lines are drawn on the photo, treat those guide lines as the intended measurement edges.'
+          'Assume normal field photos have no guide marks. If the outer frame edges cannot be confidently separated from same-color molding, trim, wall, glare, or shadows, return low confidence and null dimensions.'
         ].join(' ');
 
   // 1. Identify and Measure via the configured OpenRouter vision model.
@@ -220,7 +220,7 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, expectedOpenin
                   openingTypeText,
                   'Measure the target unit frame from the photo using pixel ratios, not by guessing a common size.',
                   'First estimate these pixel spans from the image: reference_width_px, opening_width_px, opening_height_px.',
-                  'If the reference object or opening edges are not clearly visible, set reference_detected=false, confidence below 0.5, and dimensions to null.',
+                  'If the reference object or target frame edges are not clearly visible, set reference_detected=false, confidence below 0.5, and dimensions to null. Do not invent dimensions when edge contrast is poor.',
                   'Do not return common default sizes such as 54x72 unless the pixel ratio supports them.',
                   'Return ONLY a valid JSON object with double-quoted keys:',
                   '{ "reference_detected": boolean, "reference_kind": string, "reference_width_px": number|null, "opening_width_px": number|null, "opening_height_px": number|null, "width_in": number|null, "height_in": number|null, "subtype": string, "confidence": number, "notes": string }'
