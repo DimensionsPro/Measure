@@ -2085,9 +2085,12 @@ export default function App() {
               </View>
             </View>
             <View style={styles.summaryInfoCard}>
-              <TouchableOpacity style={styles.summaryEditPencil} onPress={() => setShowJobInfoEditor(true)}>
-                <Text style={styles.smallActionIcon}>✏️</Text>
-              </TouchableOpacity>
+              <View style={styles.summaryInfoCardHeader}>
+                <Text style={styles.summaryInfoCardTitle}>Job information</Text>
+                <TouchableOpacity style={styles.summaryEditPencil} onPress={() => setShowJobInfoEditor(true)}>
+                  <Text style={styles.smallActionIcon}>✏️</Text>
+                </TouchableOpacity>
+              </View>
               <SummaryRow label="Job" value={job.jobName} />
               <SummaryRow label="Address" value={job.address} />
               <SummaryRow label="Date" value={job.measureDate} />
@@ -3057,8 +3060,10 @@ const styles = StyleSheet.create({
   summaryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 },
   summarySyncWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14, marginBottom: 8, flexShrink: 1, justifyContent: 'flex-end' },
   summarySyncText: { color: UI.secondary, fontSize: 13, fontWeight: '900', textAlign: 'right' },
-  summaryInfoCard: { position: 'relative', backgroundColor: UI.surface, borderColor: UI.border, borderWidth: 1.5, borderRadius: 24, padding: 16, paddingTop: 20, marginBottom: 12 },
-  summaryEditPencil: { position: 'absolute', right: 12, top: 8, width: 42, height: 42, borderRadius: 15, backgroundColor: UI.surfaceWarm, borderWidth: 1.5, borderColor: UI.border, alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+  summaryInfoCard: { backgroundColor: UI.surface, borderColor: UI.border, borderWidth: 1.5, borderRadius: 24, padding: 16, marginBottom: 12 },
+  summaryInfoCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: UI.faint },
+  summaryInfoCardTitle: { color: UI.muted, fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.6 },
+  summaryEditPencil: { width: 42, height: 42, borderRadius: 15, backgroundColor: UI.surfaceWarm, borderWidth: 1.5, borderColor: UI.border, alignItems: 'center', justifyContent: 'center' },
   openingDetailCard: { width: '92%', maxWidth: 540, maxHeight: '84%', backgroundColor: UI.surface, borderWidth: 1.5, borderColor: UI.border, borderRadius: 26, padding: 18 },
   openingDetailHeader: { position: 'relative', paddingRight: 64, paddingTop: 6, marginBottom: 8 },
   openingDetailCloseBtn: { position: 'absolute', right: 4, top: 1, width: 38, height: 38, borderRadius: 14, backgroundColor: UI.surfaceWarm, borderWidth: 1.5, borderColor: UI.borderStrong, alignItems: 'center', justifyContent: 'center', zIndex: 2 },
