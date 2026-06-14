@@ -1401,6 +1401,54 @@ export default function App() {
     reader.readAsDataURL(blob);
   });
 
+  const openWebImageFilePicker = (onFile) => {
+    if (!(Platform.OS === 'web' && typeof document !== 'undefined')) return false;
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*,.heic,.heif';
+    input.style.position = 'fixed';
+    input.style.left = '-9999px';
+    input.style.opacity = '0';
+
+    const cleanup = () => {
+      try { input.remove(); } catch {}
+    };
+
+    input.onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) {
+        cleanup();
+        return;
+      }
+
+      try {
+        await onFile(file);
+      } finally {
+        cleanup();
+      }
+    };
+
+    document.body.appendChild(input);
+    input.click();
+    return true;
+  };
+
+  const readWebImageForApp = async (file, maxBytes = 1200 * 1024) => {
+    const rawDataUri = await toDataUriFromBlob(file);
+    const type = String(file?.type || '').toLowerCase();
+
+    // iPhone library photos may arrive as HEIC/HEIF. Canvas compression support is
+    // inconsistent there, so keep the data URI rather than dropping the selection.
+    if (type.includes('heic') || type.includes('heif')) return rawDataUri;
+
+    try {
+      return await compressWebBlobToDataUri(file, maxBytes);
+    } catch {
+      return rawDataUri;
+    }
+  };
+
   const makeStableWebPhotoUri = async (asset) => {
     const PHOTO_SYNC_MAX_BYTES = 1200 * 1024;
     if (!asset) return '';
@@ -1458,35 +1506,22 @@ export default function App() {
   };
 
   const pickPhotoFromLibrary = async () => {
-    if (Platform.OS === 'web' && typeof document !== 'undefined') {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.onchange = async (e) => {
-        const file = e.target.files?.[0];
-        if (!file) {
-          setScanMessage('No photo was selected.');
-          return;
-        }
+    if (openWebImageFilePicker(async (file) => {
+      if (!file) {
+        setScanMessage('No photo was selected.');
+        return;
+      }
 
-        try {
-          const stableData = await compressWebBlobToDataUri(file, 1200 * 1024);
-          setScanMessage('Photo ready. Tap Scan to detect dimensions.');
-          setValidationError('');
-          setOpening(prev => ({ ...prev, photoUri: stableData, photoDataUri: stableData, width: '', height: '', scannedWidth: '', scannedHeight: '' }));
-        } catch {
-          try {
-            const dataUri = await toDataUriFromBlob(file);
-            setScanMessage('Photo ready. Tap Scan to detect dimensions.');
-            setValidationError('');
-            setOpening(prev => ({ ...prev, photoUri: dataUri, photoDataUri: dataUri, width: '', height: '', scannedWidth: '', scannedHeight: '' }));
-          } catch {
-            setScanMessage('Photo import failed. Try taking a new photo or choosing a smaller image.');
-            Alert.alert('Photo import failed', 'Try taking a new photo or choosing a smaller image.');
-          }
-        }
-      };
-      input.click();
+      try {
+        const stableData = await readWebImageForApp(file, 1200 * 1024);
+        setScanMessage('Photo ready. Tap Scan to detect dimensions.');
+        setValidationError('');
+        setOpening(prev => ({ ...prev, photoUri: stableData, photoDataUri: stableData, width: '', height: '', scannedWidth: '', scannedHeight: '' }));
+      } catch {
+        setScanMessage('Photo import failed. Try taking a new photo or choosing a smaller image.');
+        Alert.alert('Photo import failed', 'Try taking a new photo or choosing a smaller image.');
+      }
+    })) {
       return;
     }
 
@@ -1513,27 +1548,16 @@ export default function App() {
   };
 
   const pickExtraPhotoFromLibrary = async () => {
-    if (Platform.OS === 'web' && typeof document !== 'undefined') {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.onchange = async (e) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+    if (openWebImageFilePicker(async (file) => {
+      if (!file) return;
 
-        try {
-          const stableData = await compressWebBlobToDataUri(file, 1200 * 1024);
-          setOpening(prev => ({ ...prev, extraPhotoUri: stableData, extraPhotoDataUri: stableData }));
-        } catch {
-          try {
-            const dataUri = await toDataUriFromBlob(file);
-            setOpening(prev => ({ ...prev, extraPhotoUri: dataUri, extraPhotoDataUri: dataUri }));
-          } catch {
-            Alert.alert('Photo import failed', 'Try choosing a smaller extra photo.');
-          }
-        }
-      };
-      input.click();
+      try {
+        const stableData = await readWebImageForApp(file, 1200 * 1024);
+        setOpening(prev => ({ ...prev, extraPhotoUri: stableData, extraPhotoDataUri: stableData }));
+      } catch {
+        Alert.alert('Photo import failed', 'Try choosing a smaller extra photo.');
+      }
+    })) {
       return;
     }
 
