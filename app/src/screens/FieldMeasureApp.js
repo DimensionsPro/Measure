@@ -151,6 +151,7 @@ export default function App() {
   const latestSavedJobsRef = useRef(savedJobs);
 
   const totalSteps = steps.length - 1; // summary is final view
+  const lastEntryStep = totalSteps - 1;
   const isSummary = step === totalSteps;
 
   const qtyOf = (o) => {
@@ -623,7 +624,7 @@ export default function App() {
     }
   };
 
-  const next = () => {
+  const next = async () => {
     if (!stepValid) {
       setValidationError(getStepError());
       return;
@@ -632,6 +633,12 @@ export default function App() {
     if (step >= totalSteps) return;
     let ns = step + 1;
     while (ns < totalSteps && !isStepRelevant(ns, opening.openingType)) ns += 1;
+
+    if (ns >= totalSteps) {
+      await finishOpening();
+      return;
+    }
+
     setStep(Math.min(ns, totalSteps));
   };
 
@@ -2134,7 +2141,7 @@ export default function App() {
             ) : (
               <View style={{ flex: 1 }} />
             )}
-            {step < 11 ? (
+            {step < lastEntryStep ? (
               <TouchableOpacity style={styles.btn} onPress={next}><Text style={styles.btnText}>Next</Text></TouchableOpacity>
             ) : (
               <TouchableOpacity style={styles.btn} onPress={finishOpening}><Text style={styles.btnText}>{editIndex === null ? 'Finish Opening' : 'Save Changes'}</Text></TouchableOpacity>
