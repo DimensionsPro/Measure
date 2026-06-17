@@ -2142,31 +2142,62 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.container}>
-        <Image source={APP_LOGO} style={styles.logo} resizeMode="contain" />
-        <Text style={styles.h1}>DimensionsPro</Text>
+        {!isSummary ? (
+          <>
+            <Image source={APP_LOGO} style={styles.logo} resizeMode="contain" />
+            <Text style={styles.h1}>DimensionsPro</Text>
+          </>
+        ) : null}
         {showSyncBanner ? <Text style={[styles.errorText, { color: syncState === 'error' ? UI.danger : UI.primaryDeep }]}>{syncBannerText}</Text> : null}
         {entryMode === 'edit' && editIndex !== null && !isSummary ? <Text style={styles.editBadge}>Editing item #{editIndex + 1}</Text> : null}
         {entryMode === 'copy' && !isSummary ? <Text style={styles.editBadge}>Copy mode</Text> : null}
-        <Text style={styles.progress}>Step {Math.min(step + 1, steps.length)} / {steps.length}</Text>
-        <Text style={styles.stepTitle}>{steps[step]}</Text>
+        {!isSummary ? (
+          <>
+            <Text style={styles.progress}>Step {Math.min(step + 1, steps.length)} / {steps.length}</Text>
+            <Text style={styles.stepTitle}>{steps[step]}</Text>
+          </>
+        ) : null}
         {!isSummary && !!validationError ? <Text style={styles.errorText}>{validationError}</Text> : null}
 
         {!isSummary && renderStep(step, { job, setJob, opening, setOpening, setMeasureMethodTouched, capturePhoto, pickPhotoFromLibrary, captureExtraPhoto, pickExtraPhotoFromLibrary, scanFromCurrentPhoto, scanBusy, scanMessage, setScanMessage })}
 
         {isSummary && (
-          <View>
-            <View style={styles.summaryHeaderRow}>
-              <Text style={styles.section}>Overall Job Summary</Text>
-              <View style={styles.summarySyncWrap}>
-                <View style={currentMeasurementSyncStatus === 'synced' ? styles.syncBadgeSynced : styles.syncBadgePending}>
-                  <Text style={styles.syncBadgeText}>{currentMeasurementSyncStatus === 'synced' ? '✓' : '…'}</Text>
-                </View>
-                <Text style={styles.summarySyncText}>{currentMeasurementSyncStatus === 'synced' ? 'Uploaded to cloud' : 'Queued for upload'}</Text>
+          <View style={styles.summaryPage}>
+            <TouchableOpacity style={styles.summaryBackArrow} onPress={backToMainPage} accessibilityLabel="Back to main page">
+              <Text style={styles.summaryBackArrowText}>←</Text>
+            </TouchableOpacity>
+            <View style={styles.summaryHero}>
+              <View style={styles.summaryHeroCopy}>
+                <Text style={styles.summaryKicker}>Ready for review</Text>
+                <Text style={styles.summaryTitle}>{job.jobName || 'Overall Job Summary'}</Text>
+                <Text style={styles.summarySubtitle}>{job.address || 'No address added'}</Text>
+              </View>
+              <View style={currentMeasurementSyncStatus === 'synced' ? styles.summaryStatusPillSynced : styles.summaryStatusPillPending}>
+                <Text style={styles.summaryStatusText}>{currentMeasurementSyncStatus === 'synced' ? '✓ Uploaded' : 'Queued'}</Text>
               </View>
             </View>
+
+            <View style={styles.summaryStatsRow}>
+              <View style={styles.summaryStatCard}>
+                <Text style={styles.summaryStatValue}>{counts.total}</Text>
+                <Text style={styles.summaryStatLabel}>Items</Text>
+              </View>
+              <View style={styles.summaryStatCard}>
+                <Text style={styles.summaryStatValue}>{counts.lines}</Text>
+                <Text style={styles.summaryStatLabel}>Openings</Text>
+              </View>
+              <View style={styles.summaryStatCard}>
+                <Text style={styles.summaryStatValue}>{windowCount}/{doorCount}/{skylightCount}</Text>
+                <Text style={styles.summaryStatLabel}>W / D / S</Text>
+              </View>
+            </View>
+
             <View style={styles.summaryInfoCard}>
               <View style={styles.summaryInfoCardHeader}>
-                <Text style={styles.summaryInfoCardTitle}>Job information</Text>
+                <View>
+                  <Text style={styles.summaryInfoCardTitle}>Job information</Text>
+                  <Text style={styles.summaryInfoCardHint}>Tap pencil to update project details</Text>
+                </View>
                 <TouchableOpacity style={styles.summaryEditPencil} onPress={() => setShowJobInfoEditor(true)}>
                   <Text style={styles.smallActionIcon}>✏️</Text>
                 </TouchableOpacity>
@@ -2178,25 +2209,31 @@ export default function App() {
               <SummaryRow label="Measured by" value={job.measuredBy || '-'} />
             </View>
 
-            <Text style={styles.section}>Openings ({counts.total} items across {counts.lines} lines)</Text>
+            <View style={styles.summarySectionHeader}>
+              <Text style={styles.summarySectionTitle}>Openings</Text>
+              <Text style={styles.summarySectionMeta}>{counts.total} items across {counts.lines} lines</Text>
+            </View>
             {openings.map((o, i) => (
-              <View key={`${o.openingCode}-${i}`} style={styles.card}>
+              <View key={`${o.openingCode}-${i}`} style={styles.summaryOpeningCard}>
                 <TouchableOpacity onPress={() => setOpeningDetailIndex(i)} activeOpacity={0.85}>
                   <View style={styles.cardTopRow}>
                     <View style={{ flex: 1, paddingRight: 8, justifyContent: 'flex-start' }}>
-                      <View style={styles.titleQtyRow}>
-                        <Text style={styles.cardTitle} numberOfLines={1}>{o.room} • {o.openingCode} • {o.openingType} ({o.subtype})</Text>
-                        <TouchableOpacity style={styles.qtyInputInline} onPress={() => setQtyPickerIndex(i)}>
-                          <Text style={styles.qtyText}>{(o.qty || '1').toString()} ▼</Text>
-                        </TouchableOpacity>
+                      <View style={styles.summaryOpeningTitleRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.cardTitle} numberOfLines={1}>{o.room} • {o.openingCode}</Text>
+                          <Text style={styles.summaryOpeningType} numberOfLines={1}>{o.openingType} ({o.subtype})</Text>
+                        </View>
                         <View style={currentMeasurementSyncStatus === 'synced' ? styles.syncBadgeSynced : styles.syncBadgePending}>
                           <Text style={styles.syncBadgeText}>{currentMeasurementSyncStatus === 'synced' ? '✓' : '…'}</Text>
                         </View>
                       </View>
 
-                      <Text style={styles.cardTextCompact} numberOfLines={2}>
+                      <Text style={styles.summaryOpeningMeta} numberOfLines={2}>
                         {o.width}" x {o.height}"{o.openingType === 'Skylight' ? '' : ` | Jamb ${o.jamb}" | ${o.basis} | ${o.installType}`} | {o.operation}
                       </Text>
+                      <TouchableOpacity style={styles.qtyInputInline} onPress={() => setQtyPickerIndex(i)}>
+                        <Text style={styles.qtyText}>Qty {(o.qty || '1').toString()} ▼</Text>
+                      </TouchableOpacity>
                     </View>
 
                     <View style={styles.rightRailCompact}>
@@ -2218,14 +2255,9 @@ export default function App() {
               </View>
             ))}
 
-            <View style={styles.footerLine}>
-              <Text style={styles.footerLineText}>Windows: {windowCount}   |   Doors: {doorCount}   |   Skylights: {skylightCount}</Text>
-            </View>
-
             <View style={styles.rowGap}>
               <TouchableOpacity style={styles.btn} onPress={addAnother}><Text style={styles.btnText}>Add an Item</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.btn, styles.btnAlt]} onPress={exportReport}><Text style={styles.btnText}>Generate Quote-Ready Report</Text></TouchableOpacity>
-              <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={backToMainPage}><Text style={styles.btnText}>Back to Main Page</Text></TouchableOpacity>
 
               {showArchive ? (
                 <View style={styles.reportChooser}>
@@ -2277,7 +2309,7 @@ export default function App() {
         {!isSummary && (
           <View style={styles.navRow}>
             {step > 0 ? (
-              <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={back}><Text style={styles.btnText}>Back</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={back}><Text style={styles.btnText}>← Back</Text></TouchableOpacity>
             ) : (
               <View style={{ flex: 1 }} />
             )}
@@ -3137,13 +3169,46 @@ const styles = StyleSheet.create({
   },
   cardTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   cardTitle: { color: UI.ink, fontWeight: '900', marginBottom: 2, fontSize: 18, lineHeight: 22 },
+  summaryPage: { gap: 12 },
+  summaryBackArrow: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: -2 },
+  summaryBackArrowText: { color: UI.ink, fontSize: 30, fontWeight: '900', lineHeight: 32 },
+  summaryHero: {
+    backgroundColor: UI.surface,
+    borderColor: UI.border,
+    borderWidth: 1.5,
+    borderRadius: 28,
+    padding: 18,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12
+  },
+  summaryHeroCopy: { flex: 1 },
+  summaryKicker: { color: UI.secondary, fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 5 },
+  summaryTitle: { color: UI.ink, fontSize: 27, fontWeight: '900', lineHeight: 32, letterSpacing: -0.5 },
+  summarySubtitle: { color: UI.muted, fontSize: 15, fontWeight: '700', lineHeight: 21, marginTop: 5 },
+  summaryStatusPillSynced: { backgroundColor: UI.secondarySoft, borderColor: UI.secondary, borderWidth: 1, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 7 },
+  summaryStatusPillPending: { backgroundColor: UI.surfaceWarm, borderColor: UI.borderStrong, borderWidth: 1, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 7 },
+  summaryStatusText: { color: UI.ink, fontSize: 12, fontWeight: '900' },
+  summaryStatsRow: { flexDirection: 'row', gap: 10 },
+  summaryStatCard: { flex: 1, backgroundColor: UI.surfaceWarm, borderColor: UI.border, borderWidth: 1, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 10, alignItems: 'center' },
+  summaryStatValue: { color: UI.ink, fontSize: 20, fontWeight: '900', lineHeight: 24 },
+  summaryStatLabel: { color: UI.muted, fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 3 },
   summaryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 },
   summarySyncWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14, marginBottom: 8, flexShrink: 1, justifyContent: 'flex-end' },
   summarySyncText: { color: UI.secondary, fontSize: 13, fontWeight: '900', textAlign: 'right' },
   summaryInfoCard: { backgroundColor: UI.surface, borderColor: UI.border, borderWidth: 1.5, borderRadius: 24, padding: 16, marginBottom: 12 },
   summaryInfoCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: UI.faint },
   summaryInfoCardTitle: { color: UI.muted, fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.6 },
+  summaryInfoCardHint: { color: UI.muted, fontSize: 12, fontWeight: '700', marginTop: 3, opacity: 0.78 },
   summaryEditPencil: { width: 42, height: 42, borderRadius: 15, backgroundColor: UI.surfaceWarm, borderWidth: 1.5, borderColor: UI.border, alignItems: 'center', justifyContent: 'center' },
+  summarySectionHeader: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 2, gap: 10 },
+  summarySectionTitle: { color: UI.primaryDeep, fontSize: 21, fontWeight: '900', letterSpacing: -0.2 },
+  summarySectionMeta: { color: UI.muted, fontSize: 13, fontWeight: '800', paddingBottom: 2, textAlign: 'right' },
+  summaryOpeningCard: { backgroundColor: UI.surface, borderColor: UI.border, borderWidth: 1.5, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 10, overflow: 'visible' },
+  summaryOpeningTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 },
+  summaryOpeningType: { color: UI.muted, fontSize: 13, fontWeight: '800', lineHeight: 17 },
+  summaryOpeningMeta: { color: UI.muted, fontSize: 14, lineHeight: 19, marginBottom: 8 },
   openingDetailCard: { width: '92%', maxWidth: 540, maxHeight: '84%', backgroundColor: UI.surface, borderWidth: 1.5, borderColor: UI.border, borderRadius: 26, padding: 18 },
   openingDetailHeader: { position: 'relative', paddingRight: 64, paddingTop: 6, marginBottom: 8 },
   openingDetailCloseBtn: { position: 'absolute', right: 4, top: 1, width: 38, height: 38, borderRadius: 14, backgroundColor: UI.surfaceWarm, borderWidth: 1.5, borderColor: UI.borderStrong, alignItems: 'center', justifyContent: 'center', zIndex: 2 },
