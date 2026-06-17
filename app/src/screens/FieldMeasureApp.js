@@ -104,7 +104,7 @@ const emptyOpening = {
   existingType: '',
   operation: '',
   notes: '',
-  measureMethod: 'snap'
+  measureMethod: ''
 };
 
 export default function App() {
@@ -578,13 +578,6 @@ export default function App() {
   }, [job, openings, measurementId, savedJobs]);
 
   useEffect(() => {
-    if (step !== 2) return;
-    if (measureMethodTouched) return;
-    if (opening.measureMethod === 'snap') return;
-    setOpening(prev => ({ ...prev, measureMethod: 'snap' }));
-  }, [step, opening.measureMethod, measureMethodTouched]);
-
-  useEffect(() => {
     if (!isSummary) return;
     if (!job.jobName || !job.address || !openings.length) return;
     const t = setTimeout(() => {
@@ -607,9 +600,12 @@ export default function App() {
       case 0: return !!job.address && !!job.jobName && isValidDateMMDDYYYY(job.measureDate);
       case 1: return !!opening.room && !!opening.openingCode && isValidQty(opening.qty) && !!buildOperation(opening);
       case 2:
-        return opening.measureMethod === 'manual'
-          ? (isValidInchFractionMeasurement(opening.width) && isValidInchFractionMeasurement(opening.height))
-          : !!(opening.photoUri || opening.photoDataUri) && isValidInchFractionMeasurement(opening.width) && isValidInchFractionMeasurement(opening.height);
+        if (opening.measureMethod === 'manual') {
+          return isValidInchFractionMeasurement(opening.width) && isValidInchFractionMeasurement(opening.height);
+        }
+        return opening.measureMethod === 'snap'
+          ? !!(opening.photoUri || opening.photoDataUri) && isValidInchFractionMeasurement(opening.width) && isValidInchFractionMeasurement(opening.height)
+          : false;
       case 3: return opening.openingType === 'Skylight' ? true : isValidMeasurement(opening.jamb);
       case 4: return opening.openingType === 'Skylight' ? true : !!opening.basis;
       case 5: return opening.openingType === 'Skylight' ? true : (opening.glassSelections.length >= 1 && opening.glassSelections.length <= 2);
@@ -634,6 +630,7 @@ export default function App() {
       case 0: return 'Please fill Job Name, Address, and Date in MM-DD-YYYY format.';
       case 1: return 'Please complete Room, Opening ID, Quantity, and subtype selection details.';
       case 2:
+        if (!opening.measureMethod) return 'Choose DimensionSnap to scan a photo or Manual Entry to type dimensions.';
         return opening.measureMethod === 'manual'
           ? 'Please enter valid Width and Height using inches and fractions only (for example, 23 1/2).'
           : 'Please capture or pick a photo, then tap Scan until width and height are detected. Use Manual Entry if you need to type dimensions.';
@@ -1629,7 +1626,7 @@ export default function App() {
 
       const detectedSize = isValidInchFractionMeasurement(next.width) && isValidInchFractionMeasurement(next.height);
       if (!detectedSize) {
-        const message = 'Scan could not detect reliable dimensions. Make sure the credit card/1" marker and opening edges are clear, or use Manual Entry.';
+        const message = 'Scan could not detect reliable dimensions. Make sure the DimensionsPro marker card and opening edges are clear, or use Manual Entry.';
         setScanMessage(message);
         setValidationError(message);
         Alert.alert('Scan needs a clearer photo', message);
@@ -1642,7 +1639,7 @@ export default function App() {
         'DimensionSnap Analysis Complete',
         applied.length
           ? `Applied: ${applied.join(', ')}\nMeasured: ${next.width || '-'}" x ${next.height || '-'}"\nSource: ${result.meta?.measurementSource || 'vision'}\n\nPlease verify these values manually.`
-          : 'Photo quality too low to scale automatically. Ensure your 1" marker or Credit Card is clearly visible and head-on.'
+          : 'Photo quality too low to scale automatically. Ensure your DimensionsPro marker card is clearly visible and head-on.'
       );
     } catch (e) {
       const message = e?.message || 'Unable to analyze photo.';
@@ -2531,9 +2528,17 @@ function renderStep(step, ctx) {
             </TouchableOpacity>
           </View>
 
+          {!opening.measureMethod ? (
+            <View style={styles.scanChoiceCard}>
+              <Text style={styles.scanChoiceTitle}>Choose how you want to measure</Text>
+              <Text style={styles.scanChoiceText}>Use DimensionSnap for a photo scan, or Manual Entry if you already know the width and height.</Text>
+            </View>
+          ) : null}
+
           {opening.measureMethod === 'snap' ? (
-            <>
-              <Text style={styles.cardText}>Use a head-on photo with a standard credit card visible for scale.</Text>
+            <View style={styles.scanChoiceCard}>
+              <Text style={styles.scanChoiceTitle}>DimensionSnap</Text>
+              <Text style={styles.scanChoiceText}>Add a clear, straight-on photo with the DimensionsPro marker card visible. Then tap Scan.</Text>
               {(opening.photoDataUri || opening.photoUri) ? (
                 <View style={styles.photoPreviewWrap}>
                   <Image source={{ uri: opening.photoDataUri || opening.photoUri }} style={styles.previewPhoto} />
@@ -2555,15 +2560,20 @@ function renderStep(step, ctx) {
                     <Text style={styles.photoOverlayDeleteText}>🗑</Text>
                   </TouchableOpacity>
                 </View>
-              ) : <Text style={styles.label}>No scan photo selected yet.</Text>}
-              <View style={styles.rowGap}>
+              ) : (
+                <View style={styles.scanEmptyState}>
+                  <Text style={styles.scanEmptyIcon}>▣</Text>
+                  <Text style={styles.scanEmptyText}>No photo selected yet</Text>
+                </View>
+              )}
+              <View style={styles.scanActionRow}>
                 <TouchableOpacity style={styles.btn} onPress={capturePhoto}><Text style={styles.btnText}>Capture Photo</Text></TouchableOpacity>
                 <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={pickPhotoFromLibrary}><Text style={styles.btnText}>Pick from Library</Text></TouchableOpacity>
               </View>
               {(opening.photoDataUri || opening.photoUri) ? (
                 <View style={styles.rowGap}>
-                  <TouchableOpacity style={[styles.btn, { backgroundColor: '#0284c7', flex: 1 }]} onPress={() => scanFromCurrentPhoto(true)} disabled={scanBusy}>
-                    <Text style={styles.btnText}>{scanBusy ? 'Scanning...' : 'Scan Credit Card'}</Text>
+                  <TouchableOpacity style={[styles.btn, styles.scanPrimaryBtn]} onPress={() => scanFromCurrentPhoto(true)} disabled={scanBusy}>
+                    <Text style={styles.btnText}>{scanBusy ? 'Scanning...' : 'Scan Photo'}</Text>
                   </TouchableOpacity>
                 </View>
               ) : null}
@@ -2574,18 +2584,22 @@ function renderStep(step, ctx) {
                 </View>
               ) : null}
               {scanMessage ? <Text style={styles.scanStatusText}>{scanMessage}</Text> : null}
-            </>
+            </View>
           ) : null}
 
           {opening.measureMethod === 'manual' ? (
-            <>
-              <Text style={styles.cardText}>Enter width and height in inches using whole numbers or fractions only.</Text>
+            <View style={styles.scanChoiceCard}>
+              <Text style={styles.scanChoiceTitle}>Manual Entry</Text>
+              <Text style={styles.scanChoiceText}>Enter width and height in inches using whole numbers or fractions only.</Text>
               <Input label='Width (in) *' value={opening.width} onChangeText={v => setOpening({ ...opening, width: v })} placeholder='e.g. 23 1/2' />
               <Input label='Height (in) *' value={opening.height} onChangeText={v => setOpening({ ...opening, height: v })} placeholder='e.g. 48 1/4' />
-            </>
-          ) : (
-            <>
-              <Text style={styles.cardText}>Verify DimensionSnap results before continuing. Edit width and height here if the estimate is off.</Text>
+            </View>
+          ) : null}
+
+          {opening.measureMethod === 'snap' && (opening.width || opening.height || opening.scannedWidth || opening.scannedHeight) ? (
+            <View style={styles.scanChoiceCard}>
+              <Text style={styles.scanChoiceTitle}>Verify results</Text>
+              <Text style={styles.scanChoiceText}>Edit width and height if the scan estimate is off.</Text>
               <Input label='Verified width (in) *' value={opening.width} onChangeText={v => setOpening({ ...opening, width: v })} placeholder='e.g. 96' />
               <Input label='Verified height (in) *' value={opening.height} onChangeText={v => setOpening({ ...opening, height: v })} placeholder='e.g. 80' />
               {(opening.scannedWidth || opening.scannedHeight) ? (
@@ -2594,8 +2608,8 @@ function renderStep(step, ctx) {
                   <Text style={styles.cardText}>{`${opening.scannedWidth || '-'} W x ${opening.scannedHeight || '-'} H`}</Text>
                 </View>
               ) : null}
-            </>
-          )}
+            </View>
+          ) : null}
         </>
       );
     case 3:
@@ -3217,6 +3231,14 @@ const styles = StyleSheet.create({
   syncBadgeSynced: { width: 20, height: 20, borderRadius: 10, backgroundColor: UI.secondary, borderWidth: 1, borderColor: UI.secondarySoft, alignItems: 'center', justifyContent: 'center', marginRight: 0 },
   syncBadgePending: { width: 20, height: 20, borderRadius: 10, backgroundColor: UI.slate, borderWidth: 1, borderColor: UI.borderStrong, alignItems: 'center', justifyContent: 'center', marginRight: 0 },
   syncBadgeText: { color: '#fff', fontSize: 12, fontWeight: '900', lineHeight: 13 },
+  scanChoiceCard: { backgroundColor: UI.surface, borderWidth: 1.5, borderColor: UI.border, borderRadius: 22, padding: 14, marginTop: 12 },
+  scanChoiceTitle: { color: UI.ink, fontSize: 18, fontWeight: '900', marginBottom: 5 },
+  scanChoiceText: { color: UI.muted, fontSize: 14, fontWeight: '700', lineHeight: 20, marginBottom: 10 },
+  scanActionRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  scanEmptyState: { minHeight: 118, borderWidth: 1.5, borderColor: UI.border, borderStyle: 'dashed', borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: UI.surfaceWarm, marginBottom: 10 },
+  scanEmptyIcon: { color: UI.secondary, fontSize: 34, fontWeight: '900', lineHeight: 38 },
+  scanEmptyText: { color: UI.muted, fontSize: 14, fontWeight: '900', marginTop: 4 },
+  scanPrimaryBtn: { backgroundColor: UI.secondary, flex: 1 },
   scanStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   scanStatusText: { color: UI.muted, fontSize: 12, lineHeight: 16, marginTop: 6 },
   unfinishedBadge: { color: UI.primaryDeep, fontSize: 12, fontWeight: '900', borderWidth: 1, borderColor: '#fdba74', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, backgroundColor: '#fff7ed' },
