@@ -2544,6 +2544,9 @@ function renderStep(step, ctx) {
   const precisionPoints = Array.isArray(opening.photoMeasurePoints) ? opening.photoMeasurePoints : [];
   const precisionNextLabel = getPrecisionTapLabel(precisionPoints.length);
   const precisionMeasurement = calculatePrecisionPhotoMeasurement(precisionPoints);
+  const undoPrecisionLabel = precisionPoints.length
+    ? (precisionPoints.length <= 4 ? 'Undo Marker' : 'Undo Window')
+    : 'Undo';
   const updateScanBox = (nextBox, message, dragPreview) => {
     setOpening(prev => ({
       ...prev,
@@ -2830,6 +2833,13 @@ function renderStep(step, ctx) {
                   )}
                   <View style={styles.scanActionRow}>
                     <TouchableOpacity
+                      style={[styles.btn, styles.btnGhost, !precisionPoints.length ? styles.btnMuted : null]}
+                      onPress={undoPrecisionPoint}
+                      disabled={!precisionPoints.length}
+                    >
+                      <Text style={styles.btnText}>{undoPrecisionLabel}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
                       style={[styles.btn, styles.btnGhost]}
                       onPress={() => resetPrecisionPoints()}
                     >
@@ -2984,7 +2994,7 @@ function renderStep(step, ctx) {
                           onPress={undoPrecisionPoint}
                           disabled={!precisionPoints.length}
                         >
-                          <Text style={styles.btnText}>Undo</Text>
+                          <Text style={styles.btnText}>{undoPrecisionLabel}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={[styles.btn, styles.btnGhost, styles.photoModalActionBtn]}
@@ -3990,6 +4000,7 @@ const styles = StyleSheet.create({
   },
   btnAlt: { backgroundColor: UI.secondary },
   btnGhost: { backgroundColor: UI.slate },
+  btnMuted: { opacity: 0.45 },
   btnDeleteProject: { backgroundColor: UI.danger },
   btnSaveExit: { backgroundColor: '#f59e0b' },
   btnText: { color: 'white', fontWeight: '900', textAlign: 'center', fontSize: 18, letterSpacing: -0.1 },
@@ -4085,7 +4096,7 @@ const styles = StyleSheet.create({
   scanChoiceCard: { backgroundColor: UI.surface, borderWidth: 1.5, borderColor: UI.border, borderRadius: 22, padding: 14, marginTop: 12 },
   scanChoiceTitle: { color: UI.ink, fontSize: 18, fontWeight: '900', marginBottom: 5 },
   scanChoiceText: { color: UI.muted, fontSize: 14, fontWeight: '700', lineHeight: 20, marginBottom: 10 },
-  scanActionRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  scanActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
   scanEmptyState: { minHeight: 118, borderWidth: 1.5, borderColor: UI.border, borderStyle: 'dashed', borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: UI.surfaceWarm, marginBottom: 10 },
   scanEmptyIcon: { color: UI.secondary, fontSize: 34, fontWeight: '900', lineHeight: 38 },
   scanEmptyText: { color: UI.muted, fontSize: 14, fontWeight: '900', marginTop: 4 },
