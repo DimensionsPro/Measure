@@ -61,6 +61,7 @@ const PRECISION_TAP_LABELS = [
 ];
 const createDefaultScanBox = () => ({ left: 0.08, top: 0.12, right: 0.92, bottom: 0.88 });
 let activeScanBoxHandle = null;
+let activePrecisionTapPoint = null;
 
 const steps = [
   'Job Information',
@@ -2601,12 +2602,38 @@ function renderStep(step, ctx) {
   const handlePrecisionTapGrant = (event) => {
     const point = getScanCanvasPoint(event);
     if (!point) return;
+    activePrecisionTapPoint = point;
+    setOpening(prev => ({ ...prev, scanTapPreview: point }));
+  };
+  const handlePrecisionTapMove = (event) => {
+    const point = getScanCanvasPoint(event);
+    if (!point) return;
+    activePrecisionTapPoint = point;
+    setOpening(prev => ({ ...prev, scanTapPreview: point }));
+  };
+  const handlePrecisionTapRelease = (event) => {
+    const releasePoint = getScanCanvasPoint(event) || activePrecisionTapPoint;
+    activePrecisionTapPoint = null;
+    if (!releasePoint) {
+      setOpening(prev => ({ ...prev, scanTapPreview: null }));
+      return;
+    }
+    if (precisionPoints.length >= 8) {
+      setOpening(prev => ({ ...prev, scanTapPreview: null }));
+      setScanMessage('All 8 precision points are set. Use Undo or Reset to change them.');
+      return;
+    }
+
+    const point = {
+      x: Math.max(0, Math.min(1, releasePoint.x)),
+      y: Math.max(0, Math.min(1, releasePoint.y))
+    };
     const nextPoints = [...precisionPoints, point].slice(0, 8);
     const nextMeasurement = calculatePrecisionPhotoMeasurement(nextPoints);
     const nextOpening = {
       ...opening,
       photoMeasurePoints: nextPoints,
-      scanTapPreview: point,
+      scanTapPreview: null,
       width: nextMeasurement ? formatMeasurementToQuarterInches(nextMeasurement.widthIn) : opening.width,
       height: nextMeasurement ? formatMeasurementToQuarterInches(nextMeasurement.heightIn) : opening.height,
       scannedWidth: nextMeasurement ? formatMeasurementToQuarterInches(nextMeasurement.widthIn) : opening.scannedWidth,
@@ -2619,12 +2646,8 @@ function renderStep(step, ctx) {
       setScanMessage(`Point ${nextPoints.length} set. Next: ${getPrecisionTapLabel(nextPoints.length)}.`);
     }
   };
-  const handlePrecisionTapMove = (event) => {
-    const point = getScanCanvasPoint(event);
-    if (!point) return;
-    setOpening(prev => ({ ...prev, scanTapPreview: point }));
-  };
-  const handlePrecisionTapRelease = () => {
+  const handlePrecisionTapCancel = () => {
+    activePrecisionTapPoint = null;
     setOpening(prev => ({ ...prev, scanTapPreview: null }));
   };
   const resetPrecisionPoints = (message = 'Precision points reset. Start with marker top-left.') => {
@@ -2924,7 +2947,7 @@ function renderStep(step, ctx) {
                         onResponderGrant={handlePrecisionTapGrant}
                         onResponderMove={handlePrecisionTapMove}
                         onResponderRelease={handlePrecisionTapRelease}
-                        onResponderTerminate={handlePrecisionTapRelease}
+                        onResponderTerminate={handlePrecisionTapCancel}
                       >
                         <Image pointerEvents="none" source={{ uri: opening.photoDataUri || opening.photoUri }} style={styles.manualMeasureImage} resizeMode="contain" />
                         {precisionPoints.map((point, index) => (
