@@ -47,21 +47,9 @@ const LOCAL_AUTH_KEY = 'dimensions_pro_auth_v1';
 const MIN_SCAN_BOX_SIZE = 0.08;
 const SCAN_LOUPE_SIZE = 136;
 const SCAN_LOUPE_ZOOM = 2.7;
-const PRECISION_MARKER_EDGE_IN = 1.2;
-const MANUAL_MARKER_EDGE_IN = PRECISION_MARKER_EDGE_IN;
-const PRECISION_TAP_LABELS = [
-  'Marker top-left corner',
-  'Marker top-right corner',
-  'Marker bottom-right corner',
-  'Marker bottom-left corner',
-  'Window top-left corner',
-  'Window top-right corner',
-  'Window bottom-right corner',
-  'Window bottom-left corner'
-];
+const MANUAL_MARKER_EDGE_IN = 1.2;
 const createDefaultScanBox = () => ({ left: 0.08, top: 0.12, right: 0.92, bottom: 0.88 });
 let activeScanBoxHandle = null;
-let activePrecisionTapPoint = null;
 
 const steps = [
   'Job Information',
@@ -112,7 +100,6 @@ const emptyOpening = {
   bracketCardPoint: null,
   scanBox: createDefaultScanBox(),
   photoPreviewOpen: false,
-  precisionMeasureOpen: false,
   jamb: '',
   basis: 'Net frame',
   glassType: '',
@@ -1522,7 +1509,7 @@ export default function App() {
       const asset = result.assets[0];
       const stableData = Platform.OS === 'web' ? await makeStableWebPhotoUri(asset) : await buildNativeCompressedDataUri(asset.uri);
       setScanMessage('Photo ready. Tap Scan to detect dimensions.');
-      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '', width: '', height: '', scannedWidth: '', scannedHeight: '', photoMeasurePoints: [], bracketCardPoint: null, scanBox: createDefaultScanBox(), scanDragPreview: null, scanTapPreview: null, photoPreviewOpen: false, precisionMeasureOpen: false }));
+      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '', width: '', height: '', scannedWidth: '', scannedHeight: '', photoMeasurePoints: [], bracketCardPoint: null, scanBox: createDefaultScanBox(), scanDragPreview: null, photoPreviewOpen: false }));
     }
   };
 
@@ -1537,7 +1524,7 @@ export default function App() {
         const stableData = await readWebImageForApp(file, 1200 * 1024);
         setScanMessage('Photo ready. Tap Scan to detect dimensions.');
         setValidationError('');
-        setOpening(prev => ({ ...prev, photoUri: stableData, photoDataUri: stableData, width: '', height: '', scannedWidth: '', scannedHeight: '', photoMeasurePoints: [], bracketCardPoint: null, scanBox: createDefaultScanBox(), scanDragPreview: null, scanTapPreview: null, photoPreviewOpen: false, precisionMeasureOpen: false }));
+        setOpening(prev => ({ ...prev, photoUri: stableData, photoDataUri: stableData, width: '', height: '', scannedWidth: '', scannedHeight: '', photoMeasurePoints: [], bracketCardPoint: null, scanBox: createDefaultScanBox(), scanDragPreview: null, photoPreviewOpen: false }));
       } catch {
         setScanMessage('Photo import failed. Try taking a new photo or choosing a smaller image.');
         Alert.alert('Photo import failed', 'Try taking a new photo or choosing a smaller image.');
@@ -1553,7 +1540,7 @@ export default function App() {
       const asset = result.assets[0];
       const stableData = Platform.OS === 'web' ? await makeStableWebPhotoUri(asset) : await buildNativeCompressedDataUri(asset.uri);
       setScanMessage('Photo ready. Tap Scan to detect dimensions.');
-      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '', width: '', height: '', scannedWidth: '', scannedHeight: '', photoMeasurePoints: [], bracketCardPoint: null, scanBox: createDefaultScanBox(), scanDragPreview: null, scanTapPreview: null, photoPreviewOpen: false, precisionMeasureOpen: false }));
+      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '', width: '', height: '', scannedWidth: '', scannedHeight: '', photoMeasurePoints: [], bracketCardPoint: null, scanBox: createDefaultScanBox(), scanDragPreview: null, photoPreviewOpen: false }));
     }
   };
 
@@ -2502,51 +2489,11 @@ export default function App() {
   );
 }
 
-function PrecisionLine({ points, style }) {
-  if (!Array.isArray(points) || points.length < 2) return null;
-  const closed = points.length >= 4;
-  const segments = [];
-  const max = closed ? points.length : points.length - 1;
-  for (let i = 0; i < max; i += 1) {
-    const a = points[i];
-    const b = points[(i + 1) % points.length];
-    if (!a || !b) continue;
-    const dx = (b.x - a.x) * 100;
-    const dy = (b.y - a.y) * 100;
-    const length = Math.hypot(dx, dy);
-    const angle = Math.atan2(dy, dx);
-    segments.push(
-      <View
-        key={`line_${i}`}
-        pointerEvents="none"
-          style={[
-            styles.precisionLineBase,
-            style,
-            {
-            left: `${a.x * 100}%`,
-            top: `${a.y * 100}%`,
-            width: `${length}%`,
-            transform: [{ rotate: `${angle}rad` }]
-          }
-        ]}
-      />
-    );
-  }
-  return <>{segments}</>;
-}
-
 function renderStep(step, ctx) {
   const { job, setJob, opening, setOpening, setMeasureMethodTouched, capturePhoto, pickPhotoFromLibrary, captureExtraPhoto, pickExtraPhotoFromLibrary, scanFromCurrentPhoto, scanBusy, scanMessage, setScanMessage } = ctx;
   const scanBox = normalizeScanBox(opening.scanBox);
   const scanBoxStyle = getScanBoxStyle(scanBox);
   const scanLoupeStyles = getScanLoupeStyles(opening.scanDragPreview, opening.scanCanvasSize);
-  const precisionLoupeStyles = getScanLoupeStyles(opening.scanTapPreview, opening.scanCanvasSize);
-  const precisionPoints = Array.isArray(opening.photoMeasurePoints) ? opening.photoMeasurePoints : [];
-  const precisionNextLabel = getPrecisionTapLabel(precisionPoints.length);
-  const precisionMeasurement = calculatePrecisionPhotoMeasurement(precisionPoints);
-  const undoPrecisionLabel = precisionPoints.length
-    ? (precisionPoints.length <= 4 ? 'Undo Marker' : 'Undo Window')
-    : 'Undo';
   const updateScanBox = (nextBox, message, dragPreview) => {
     setOpening(prev => ({
       ...prev,
@@ -2601,83 +2548,6 @@ function renderStep(step, ctx) {
     activeScanBoxHandle = null;
     setOpening(prev => ({ ...prev, scanDragPreview: null }));
     setScanMessage('Window box set. Tap Scan Photo when ready.');
-  };
-  const handlePrecisionTapGrant = (event) => {
-    const point = getScanCanvasPoint(event);
-    if (!point) return;
-    activePrecisionTapPoint = point;
-    setOpening(prev => ({ ...prev, scanTapPreview: point }));
-  };
-  const handlePrecisionTapMove = (event) => {
-    const point = getScanCanvasPoint(event);
-    if (!point) return;
-    activePrecisionTapPoint = point;
-    setOpening(prev => ({ ...prev, scanTapPreview: point }));
-  };
-  const handlePrecisionTapRelease = (event) => {
-    const releasePoint = getScanCanvasPoint(event) || activePrecisionTapPoint;
-    activePrecisionTapPoint = null;
-    if (!releasePoint) {
-      setOpening(prev => ({ ...prev, scanTapPreview: null }));
-      return;
-    }
-    if (precisionPoints.length >= 8) {
-      setOpening(prev => ({ ...prev, scanTapPreview: null }));
-      setScanMessage('All 8 precision points are set. Use Undo or Reset to change them.');
-      return;
-    }
-
-    const point = {
-      x: Math.max(0, Math.min(1, releasePoint.x)),
-      y: Math.max(0, Math.min(1, releasePoint.y))
-    };
-    const nextPoints = [...precisionPoints, point].slice(0, 8);
-    const nextMeasurement = calculatePrecisionPhotoMeasurement(nextPoints);
-    const nextOpening = {
-      ...opening,
-      photoMeasurePoints: nextPoints,
-      scanTapPreview: null,
-      width: nextMeasurement ? formatMeasurementToQuarterInches(nextMeasurement.widthIn) : opening.width,
-      height: nextMeasurement ? formatMeasurementToQuarterInches(nextMeasurement.heightIn) : opening.height,
-      scannedWidth: nextMeasurement ? formatMeasurementToQuarterInches(nextMeasurement.widthIn) : opening.scannedWidth,
-      scannedHeight: nextMeasurement ? formatMeasurementToQuarterInches(nextMeasurement.heightIn) : opening.scannedHeight
-    };
-    setOpening(nextOpening);
-    if (nextMeasurement) {
-      setScanMessage(`Precision measured ${nextOpening.width}" x ${nextOpening.height}". Verify before continuing.`);
-    } else {
-      setScanMessage(`Point ${nextPoints.length} set. Next: ${getPrecisionTapLabel(nextPoints.length)}.`);
-    }
-  };
-  const handlePrecisionTapCancel = () => {
-    activePrecisionTapPoint = null;
-    setOpening(prev => ({ ...prev, scanTapPreview: null }));
-  };
-  const resetPrecisionPoints = (message = 'Precision points reset. Start with marker top-left.') => {
-    setOpening(prev => ({
-      ...prev,
-      photoMeasurePoints: [],
-      scanTapPreview: null,
-      width: '',
-      height: '',
-      scannedWidth: '',
-      scannedHeight: ''
-    }));
-    setScanMessage(message);
-  };
-  const undoPrecisionPoint = () => {
-    const nextPoints = precisionPoints.slice(0, -1);
-    const nextMeasurement = calculatePrecisionPhotoMeasurement(nextPoints);
-    setOpening(prev => ({
-      ...prev,
-      photoMeasurePoints: nextPoints,
-      scanTapPreview: null,
-      width: nextMeasurement ? formatMeasurementToQuarterInches(nextMeasurement.widthIn) : '',
-      height: nextMeasurement ? formatMeasurementToQuarterInches(nextMeasurement.heightIn) : '',
-      scannedWidth: nextMeasurement ? formatMeasurementToQuarterInches(nextMeasurement.widthIn) : '',
-      scannedHeight: nextMeasurement ? formatMeasurementToQuarterInches(nextMeasurement.heightIn) : ''
-    }));
-    setScanMessage(nextPoints.length ? `Removed last point. Next: ${getPrecisionTapLabel(nextPoints.length)}.` : 'Precision points reset. Start with marker top-left.');
   };
 
   switch (step) {
@@ -2776,7 +2646,6 @@ function renderStep(step, ctx) {
                         bracketCardPoint: null,
                         scanBox: createDefaultScanBox(),
                         scanDragPreview: null,
-                        scanTapPreview: null,
                         photoPreviewOpen: false
                       });
                       setScanMessage('');
@@ -2818,41 +2687,6 @@ function renderStep(step, ctx) {
                     </TouchableOpacity>
                     <TouchableOpacity style={[styles.btn, styles.scanPrimaryBtn]} onPress={() => scanFromCurrentPhoto(true)} disabled={scanBusy}>
                       <Text style={styles.btnText}>{scanBusy ? 'Scanning...' : 'Scan Photo'}</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ) : null}
-              {(opening.photoDataUri || opening.photoUri) ? (
-                <View style={styles.manualMeasureCard}>
-                  <Text style={styles.manualMeasureStepTitle}>Precision Mode</Text>
-                  <Text style={styles.manualMeasureStepDetail}>Tap 4 marker corners, then 4 window corners. Use this when the scan is off.</Text>
-                  {precisionMeasurement ? (
-                    <Text style={styles.precisionResultText}>Measured {formatMeasurementToQuarterInches(precisionMeasurement.widthIn)}" x {formatMeasurementToQuarterInches(precisionMeasurement.heightIn)}"</Text>
-                  ) : (
-                    <Text style={styles.manualMeasureChecklistText}>Next tap: {precisionNextLabel}</Text>
-                  )}
-                  <View style={styles.scanActionRow}>
-                    <TouchableOpacity
-                      style={[styles.btn, styles.btnGhost, !precisionPoints.length ? styles.btnMuted : null]}
-                      onPress={undoPrecisionPoint}
-                      disabled={!precisionPoints.length}
-                    >
-                      <Text style={styles.btnText}>{undoPrecisionLabel}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.btn, styles.btnGhost]}
-                      onPress={() => resetPrecisionPoints()}
-                    >
-                      <Text style={styles.btnText}>Reset Points</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.btn, styles.scanPrimaryBtn]}
-                      onPress={() => {
-                        setOpening({ ...opening, precisionMeasureOpen: true, scanTapPreview: null });
-                        setScanMessage(precisionPoints.length ? `Continue: ${getPrecisionTapLabel(precisionPoints.length)}.` : 'Start with marker top-left.');
-                      }}
-                    >
-                      <Text style={styles.btnText}>Precision Tap</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -2924,101 +2758,6 @@ function renderStep(step, ctx) {
                         </TouchableOpacity>
                       </View>
                       <Text style={styles.photoModalHint}>Keep the marker card inside the box. Drag an edge or corner around the window; drag inside the box to move it.</Text>
-                    </View>
-                  </View>
-                </Modal>
-              ) : null}
-              {(opening.photoDataUri || opening.photoUri) ? (
-                <Modal visible={!!opening.precisionMeasureOpen} transparent animationType="fade" onRequestClose={() => setOpening({ ...opening, precisionMeasureOpen: false, scanTapPreview: null })}>
-                  <View style={styles.photoModalBackdrop}>
-                    <View style={styles.photoModalCard}>
-                      <View style={styles.photoModalHeader}>
-                        <View style={styles.photoModalTitleBlock}>
-                          <Text style={styles.photoModalTitle}>Precision taps</Text>
-                          <Text style={styles.photoModalSubTitle}>{precisionMeasurement ? `Measured ${formatMeasurementToQuarterInches(precisionMeasurement.widthIn)}" x ${formatMeasurementToQuarterInches(precisionMeasurement.heightIn)}"` : `Next: ${precisionNextLabel}`}</Text>
-                        </View>
-                        <View style={styles.photoModalHeaderActions}>
-                          <TouchableOpacity
-                            style={[styles.photoModalUndo, !precisionPoints.length ? styles.btnMuted : null]}
-                            onPress={undoPrecisionPoint}
-                            disabled={!precisionPoints.length}
-                            accessibilityLabel={undoPrecisionLabel}
-                          >
-                            <Text style={styles.photoModalUndoText}>↺</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity style={styles.photoModalClose} onPress={() => setOpening({ ...opening, precisionMeasureOpen: false, scanTapPreview: null })}>
-                            <Text style={styles.smallActionIcon}>✕</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                      <View
-                        style={styles.manualMeasureCanvas}
-                        onLayout={({ nativeEvent }) => {
-                          const nextSize = {
-                            width: nativeEvent.layout?.width || 0,
-                            height: nativeEvent.layout?.height || 0
-                          };
-                          if (nextSize.width && nextSize.height && (opening.scanCanvasSize?.width !== nextSize.width || opening.scanCanvasSize?.height !== nextSize.height)) {
-                            setOpening(prev => ({ ...prev, scanCanvasSize: nextSize }));
-                          }
-                        }}
-                        onStartShouldSetResponder={() => true}
-                        onMoveShouldSetResponder={() => true}
-                        onResponderGrant={handlePrecisionTapGrant}
-                        onResponderMove={handlePrecisionTapMove}
-                        onResponderRelease={handlePrecisionTapRelease}
-                        onResponderTerminate={handlePrecisionTapCancel}
-                      >
-                        <Image pointerEvents="none" source={{ uri: opening.photoDataUri || opening.photoUri }} style={styles.manualMeasureImage} resizeMode="contain" />
-                        {precisionPoints.map((point, index) => (
-                          <View
-                            key={`precision_${index}`}
-                            pointerEvents="none"
-                            style={[
-                              styles.manualMeasureDot,
-                              index < 4 ? styles.manualMeasureDotMarker : styles.manualMeasureDotWindow,
-                              { left: `${point.x * 100}%`, top: `${point.y * 100}%` }
-                            ]}
-                          >
-                            <Text style={styles.manualMeasureDotText}>{index + 1}</Text>
-                          </View>
-                        ))}
-                        {precisionPoints.length >= 2 ? <PrecisionLine points={precisionPoints.slice(0, Math.min(4, precisionPoints.length))} style={styles.precisionMarkerLine} /> : null}
-                        {precisionPoints.length >= 6 ? <PrecisionLine points={precisionPoints.slice(4)} style={styles.precisionWindowLine} /> : null}
-                        {precisionLoupeStyles ? (
-                          <View pointerEvents="none" style={[styles.scanLoupe, precisionLoupeStyles.wrap]}>
-                            <Image
-                              pointerEvents="none"
-                              source={{ uri: opening.photoDataUri || opening.photoUri }}
-                              style={[styles.scanLoupeImage, precisionLoupeStyles.image]}
-                              resizeMode="contain"
-                            />
-                            <View style={styles.scanLoupeCrosshairHorizontal} />
-                            <View style={styles.scanLoupeCrosshairVertical} />
-                          </View>
-                        ) : null}
-                      </View>
-                      <View style={styles.photoModalActions}>
-                        <TouchableOpacity
-                          style={[styles.btn, styles.btnGhost, styles.photoModalActionBtn]}
-                          onPress={() => resetPrecisionPoints()}
-                        >
-                          <Text style={styles.btnText}>Reset</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.btn, styles.scanPrimaryBtn, styles.photoModalActionBtn]}
-                          onPress={() => setOpening({ ...opening, precisionMeasureOpen: false, scanTapPreview: null })}
-                        >
-                          <Text style={styles.btnText}>Done</Text>
-                        </TouchableOpacity>
-                      </View>
-                      <View style={styles.manualMeasureChecklist}>
-                        {PRECISION_TAP_LABELS.map((label, index) => (
-                          <Text key={label} style={[styles.manualMeasureChecklistText, index < precisionPoints.length ? styles.precisionChecklistDone : null]}>
-                            {index + 1}. {label}
-                          </Text>
-                        ))}
-                      </View>
                     </View>
                   </View>
                 </Modal>
@@ -3694,103 +3433,6 @@ function pointDistance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-function getPrecisionTapLabel(index) {
-  return PRECISION_TAP_LABELS[index] || 'Complete';
-}
-
-function solveLinearSystem(matrix, vector) {
-  const n = vector.length;
-  const a = matrix.map((row, index) => [...row, vector[index]]);
-
-  for (let col = 0; col < n; col += 1) {
-    let pivot = col;
-    for (let row = col + 1; row < n; row += 1) {
-      if (Math.abs(a[row][col]) > Math.abs(a[pivot][col])) pivot = row;
-    }
-    if (Math.abs(a[pivot][col]) < 1e-10) return null;
-    if (pivot !== col) {
-      const tmp = a[col];
-      a[col] = a[pivot];
-      a[pivot] = tmp;
-    }
-
-    const divisor = a[col][col];
-    for (let j = col; j <= n; j += 1) a[col][j] /= divisor;
-
-    for (let row = 0; row < n; row += 1) {
-      if (row === col) continue;
-      const factor = a[row][col];
-      for (let j = col; j <= n; j += 1) {
-        a[row][j] -= factor * a[col][j];
-      }
-    }
-  }
-
-  return a.map(row => row[n]);
-}
-
-function buildPerspectiveTransform(sourcePoints, destinationPoints) {
-  if (!Array.isArray(sourcePoints) || !Array.isArray(destinationPoints) || sourcePoints.length !== 4 || destinationPoints.length !== 4) return null;
-  const matrix = [];
-  const vector = [];
-
-  for (let i = 0; i < 4; i += 1) {
-    const { x, y } = sourcePoints[i];
-    const u = destinationPoints[i].x;
-    const v = destinationPoints[i].y;
-    matrix.push([x, y, 1, 0, 0, 0, -u * x, -u * y]);
-    vector.push(u);
-    matrix.push([0, 0, 0, x, y, 1, -v * x, -v * y]);
-    vector.push(v);
-  }
-
-  const h = solveLinearSystem(matrix, vector);
-  if (!h) return null;
-
-  return (point) => {
-    const denominator = h[6] * point.x + h[7] * point.y + 1;
-    if (Math.abs(denominator) < 1e-10) return null;
-    return {
-      x: (h[0] * point.x + h[1] * point.y + h[2]) / denominator,
-      y: (h[3] * point.x + h[4] * point.y + h[5]) / denominator
-    };
-  };
-}
-
-function calculatePrecisionPhotoMeasurement(points) {
-  if (!Array.isArray(points) || points.length < 8) return null;
-  const markerPoints = points.slice(0, 4);
-  const windowPoints = points.slice(4, 8);
-  const markerRealPoints = [
-    { x: 0, y: 0 },
-    { x: PRECISION_MARKER_EDGE_IN, y: 0 },
-    { x: PRECISION_MARKER_EDGE_IN, y: PRECISION_MARKER_EDGE_IN },
-    { x: 0, y: PRECISION_MARKER_EDGE_IN }
-  ];
-  const transform = buildPerspectiveTransform(markerPoints, markerRealPoints);
-  if (!transform) return null;
-
-  const mappedWindow = windowPoints.map(transform);
-  if (mappedWindow.some(point => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y))) return null;
-
-  const widthTop = pointDistance(mappedWindow[0], mappedWindow[1]);
-  const widthBottom = pointDistance(mappedWindow[3], mappedWindow[2]);
-  const heightRight = pointDistance(mappedWindow[1], mappedWindow[2]);
-  const heightLeft = pointDistance(mappedWindow[0], mappedWindow[3]);
-  const widthIn = (widthTop + widthBottom) / 2;
-  const heightIn = (heightLeft + heightRight) / 2;
-  if (!Number.isFinite(widthIn) || !Number.isFinite(heightIn) || widthIn <= 0 || heightIn <= 0) return null;
-
-  const widthSpread = Math.abs(widthTop - widthBottom) / Math.max(widthIn, 1);
-  const heightSpread = Math.abs(heightLeft - heightRight) / Math.max(heightIn, 1);
-  return {
-    widthIn,
-    heightIn,
-    widthSpread,
-    heightSpread
-  };
-}
-
 function calculateManualPhotoMeasurement(points) {
   if (!Array.isArray(points) || points.length < 6) return null;
   const markerPx = pointDistance(points[0], points[1]);
@@ -3935,12 +3577,7 @@ const styles = StyleSheet.create({
   photoModalBackdrop: { flex: 1, backgroundColor: 'rgba(2,6,23,0.92)', justifyContent: 'center', alignItems: 'center', padding: 14 },
   photoModalCard: { width: '100%', maxWidth: 720, maxHeight: '92%', backgroundColor: UI.surface, borderWidth: 1.5, borderColor: UI.borderStrong, borderRadius: 24, padding: 12 },
   photoModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  photoModalTitleBlock: { flex: 1, paddingRight: 10 },
   photoModalTitle: { color: UI.ink, fontSize: 18, fontWeight: '900' },
-  photoModalSubTitle: { color: UI.muted, fontSize: 13, fontWeight: '800', marginTop: 2 },
-  photoModalHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  photoModalUndo: { width: 38, height: 38, borderRadius: 19, backgroundColor: UI.slate, borderWidth: 1.5, borderColor: UI.borderStrong, alignItems: 'center', justifyContent: 'center' },
-  photoModalUndoText: { color: 'white', fontSize: 24, fontWeight: '900', lineHeight: 26, textAlign: 'center' },
   photoModalClose: { width: 38, height: 38, borderRadius: 14, backgroundColor: UI.surfaceWarm, borderWidth: 1.5, borderColor: UI.borderStrong, alignItems: 'center', justifyContent: 'center' },
   photoModalCanvas: { width: '100%', height: 560, maxHeight: '78%', borderRadius: 18, overflow: 'hidden', backgroundColor: '#020617', position: 'relative', borderWidth: 1.5, borderColor: UI.borderStrong },
   photoModalImage: { width: '100%', height: '100%' },
@@ -4006,7 +3643,6 @@ const styles = StyleSheet.create({
   },
   btnAlt: { backgroundColor: UI.secondary },
   btnGhost: { backgroundColor: UI.slate },
-  btnMuted: { opacity: 0.45 },
   btnDeleteProject: { backgroundColor: UI.danger },
   btnSaveExit: { backgroundColor: '#f59e0b' },
   btnText: { color: 'white', fontWeight: '900', textAlign: 'center', fontSize: 18, letterSpacing: -0.1 },
@@ -4102,7 +3738,7 @@ const styles = StyleSheet.create({
   scanChoiceCard: { backgroundColor: UI.surface, borderWidth: 1.5, borderColor: UI.border, borderRadius: 22, padding: 14, marginTop: 12 },
   scanChoiceTitle: { color: UI.ink, fontSize: 18, fontWeight: '900', marginBottom: 5 },
   scanChoiceText: { color: UI.muted, fontSize: 14, fontWeight: '700', lineHeight: 20, marginBottom: 10 },
-  scanActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
+  scanActionRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
   scanEmptyState: { minHeight: 118, borderWidth: 1.5, borderColor: UI.border, borderStyle: 'dashed', borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: UI.surfaceWarm, marginBottom: 10 },
   scanEmptyIcon: { color: UI.secondary, fontSize: 34, fontWeight: '900', lineHeight: 38 },
   scanEmptyText: { color: UI.muted, fontSize: 14, fontWeight: '900', marginTop: 4 },
@@ -4122,16 +3758,9 @@ const styles = StyleSheet.create({
   manualMeasureCanvas: { width: '100%', height: 560, backgroundColor: '#020617', borderWidth: 1.5, borderColor: UI.borderStrong, borderRadius: 18, overflow: 'hidden', position: 'relative' },
   manualMeasureImage: { width: '100%', height: '100%' },
   manualMeasureDot: { position: 'absolute', width: 22, height: 22, borderRadius: 11, backgroundColor: UI.primary, borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
-  manualMeasureDotMarker: { backgroundColor: UI.secondary },
-  manualMeasureDotWindow: { backgroundColor: UI.primary },
   manualMeasureDotText: { color: '#fff', fontSize: 11, fontWeight: '900', lineHeight: 13 },
   manualMeasureChecklist: { marginTop: 10, gap: 3 },
   manualMeasureChecklistText: { color: UI.muted, fontSize: 12, fontWeight: '800', lineHeight: 17 },
-  precisionChecklistDone: { color: UI.secondary },
-  precisionResultText: { color: UI.secondary, fontSize: 14, fontWeight: '900', lineHeight: 20, marginBottom: 8 },
-  precisionLineBase: { position: 'absolute', height: 2, marginTop: -1, transformOrigin: 'left center' },
-  precisionMarkerLine: { backgroundColor: 'rgba(6,182,212,0.92)' },
-  precisionWindowLine: { backgroundColor: 'rgba(249,115,22,0.95)' },
   unfinishedBadge: { color: UI.primaryDeep, fontSize: 12, fontWeight: '900', borderWidth: 1, borderColor: '#fdba74', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, backgroundColor: '#fff7ed' },
   rowDeleteX: { width: 22, height: 22, borderRadius: 8, backgroundColor: UI.danger, alignItems: 'center', justifyContent: 'center' },
   rowDeleteXFloating: { position: 'absolute', right: 10, top: 8, width: 22, height: 22, borderRadius: 8, backgroundColor: UI.danger, alignItems: 'center', justifyContent: 'center', zIndex: 6 },
