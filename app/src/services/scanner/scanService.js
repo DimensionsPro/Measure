@@ -70,7 +70,7 @@ function classifyWindowType(aspect, hasHorizontalSplit, hasVerticalSplit) {
  * AI-Driven Measurement via a current OpenRouter vision model.
  */
 
-const OPENROUTER_API_KEY = process.env[SCANNER_ENV_KEY];
+const OPENROUTER_API_KEY = process.env.EXPO_PUBLIC_OPENROUTER_KEY;
 
 function normalizeImageUrl({ photoUri, base64Image }) {
   const raw = base64Image || photoUri || '';
@@ -312,18 +312,30 @@ async function detectMarkerScaleLocally(imageUrl, targetPixelSize = null) {
   };
 }
 
-function buildMeasuredFields(aiResult, knownReferenceWidthIn, knownReferenceHeightIn, targetPixelSize = null) {
+function buildMeasuredFields(aiResult, knownReferenceWidthIn, knownReferenceHeightIn, targetPixelSize = null, localReference = null) {
   const confidence = Math.max(0, Math.min(1, numeric(aiResult.confidence) ?? 0));
-  const referenceDetected = aiResult.reference_detected === true;
-  const referenceWidthPx = numeric(aiResult.reference_width_px);
-  const referenceHeightPx = numeric(aiResult.reference_height_px);
+  const localReferencePx = numeric(localReference?.markerEdgePx);
+  const localReferenceConfidence = numeric(localReference?.confidence);
+  const aiReferenceDetected = aiResult.reference_detected === true;
+  const referenceDetected = aiReferenceDetected || (localReferencePx !== null && localReferencePx > 5);
+  const referenceWidthPx = numeric(aiResult.reference_width_px) ?? localReferencePx;
+  const referenceHeightPx = numeric(aiResult.reference_height_px) ?? localReferencePx;
   const measuredTargetWidthPx = numeric(targetPixelSize?.width);
   const measuredTargetHeightPx = numeric(targetPixelSize?.height);
-  const openingWidthPx = measuredTargetWidthPx || numeric(aiResult.opening_width_px);
-  const openingHeightPx = measuredTargetHeightPx || numeric(aiResult.opening_height_px);
+  const aiOpeningWidthPx = numeric(aiResult.opening_width_px);
+  const aiOpeningHeightPx = numeric(aiResult.opening_height_px);
+  const openingWidthPx = aiOpeningWidthPx || measuredTargetWidthPx;
+  const openingHeightPx = aiOpeningHeightPx || measuredTargetHeightPx;
   const directWidth = numeric(aiResult.width_in);
   const directHeight = numeric(aiResult.height_in);
-  const targetPixelSizeUsed = !!(measuredTargetWidthPx && measuredTargetHeightPx);
+  const targetPixelSizeUsed = !!(
+    measuredTargetWidthPx
+    && measuredTargetHeightPx
+    && (aiOpeningWidthPx === null || aiOpeningHeightPx === null)
+  );
+  const confidenceWithReference = localReferenceConfidence !== null
+    ? Math.min(confidence, Math.max(0.52, localReferenceConfidence))
+    : confidence;
   const squareReferencePx = referenceWidthPx !== null && referenceHeightPx !== null
     ? (referenceWidthPx + referenceHeightPx) / 2
     : referenceWidthPx !== null ? referenceWidthPx : referenceHeightPx;
@@ -333,8 +345,8 @@ function buildMeasuredFields(aiResult, knownReferenceWidthIn, knownReferenceHeig
     return {
       widthIn: roundToQuarter(openingWidthPx * pxToIn),
       heightIn: roundToQuarter(openingHeightPx * pxToIn),
-      confidence,
-      source: 'user-box-pixel-scale',
+      confidence: Math.min(confidenceWithReference, 0.58),
+      source: 'user-box-fallback-pixel-scale',
       referenceDetected,
       referenceWidthPx,
       referenceHeightPx,
@@ -385,8 +397,8 @@ function buildMeasuredFields(aiResult, knownReferenceWidthIn, knownReferenceHeig
   return {
     widthIn,
     heightIn,
-    confidence: looksLikeCommonGuess || !hasWidthScale || !hasHeightScale ? Math.min(confidence, 0.68) : confidence,
-    source: hasWidthScale && hasHeightScale ? 'pixel-scale-card-edges' : 'partial-pixel-scale-card-edge',
+    confidence: looksLikeCommonGuess || !hasWidthScale || !hasHeightScale ? Math.min(confidenceWithReference, 0.68) : confidenceWithReference,
+    source: hasWidthScale && hasHeightScale ? 'opening-edge-pixel-scale' : 'partial-opening-edge-pixel-scale',
     referenceDetected,
     referenceWidthPx,
     referenceHeightPx,
@@ -402,7 +414,8 @@ function buildScanBoxInstruction(scanBox = null, scanCropApplied = false) {
       'The provided image has already been cropped from the user-adjusted scan box.',
       'Treat the cropped image as the selected target area.',
       'Measure the full window/opening section visible in this cropped image, using the DimensionsPro marker card inside the crop for scale.',
-      'The app will use the cropped image dimensions as the selected opening span, so only estimate the marker pixel dimensions carefully.',
+      'Do not assume the full cropped image width or height equals the opening size unless the crop exactly touches the opening edges.',
+      'Estimate the actual opening_width_px and opening_height_px from the visible target edges inside the crop.',
       'Ignore any partial neighboring windows, walls, trim, or bracket sections that only appear at the crop edges.'
     ].join(' ');
   }
@@ -432,34 +445,12 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, expectedOpenin
     throw new Error('No photo data was available for scanning.');
   }
 
+  let localMeasurement = null;
   if (scanCropApplied && targetPixelSize) {
-    const localMeasurement = await detectMarkerScaleLocally(imageUrl, targetPixelSize);
-    if (localMeasurement) {
-      return {
-        meta: {
-          version: 'blackbriar-v2.1-local-marker',
-          engine: 'browser-marker-detector',
-          measurementSource: 'local-marker-crop-scale',
-          referenceDetected: localMeasurement.referenceDetected,
-          referenceWidthPx: localMeasurement.referenceWidthPx,
-          referenceHeightPx: localMeasurement.referenceHeightPx,
-          openingWidthPx: localMeasurement.targetPixelSize.width,
-          openingHeightPx: localMeasurement.targetPixelSize.height,
-          scanBox: scanBox || null,
-          scanCropApplied: true,
-          targetPixelSize: localMeasurement.targetPixelSize,
-          targetPixelSizeUsed: true,
-          markerRect: localMeasurement.markerRect,
-          markerEdgePx: localMeasurement.markerEdgePx,
-          threshold: localMeasurement.threshold
-        },
-        fields: {
-          openingType: { value: expectedOpeningType, confidence: 0 },
-          subtype: { value: 'Other', confidence: 0 },
-          estimatedWidthIn: { value: localMeasurement.widthIn, confidence: localMeasurement.confidence },
-          estimatedHeightIn: { value: localMeasurement.heightIn, confidence: localMeasurement.confidence }
-        }
-      };
+    try {
+      localMeasurement = await detectMarkerScaleLocally(imageUrl, targetPixelSize);
+    } catch {
+      localMeasurement = null;
     }
   }
 
@@ -517,7 +508,7 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, expectedOpenin
                   openingTypeText,
                   'Measure from pixel ratios, not by guessing a common size.',
                   scanCropApplied
-                    ? 'Estimate only these marker pixel spans from the image: reference_width_px as the black AprilTag square outer width, reference_height_px as the black AprilTag square outer height. Set opening_width_px and opening_height_px to null.'
+                    ? 'Estimate these pixel spans inside the cropped image: reference_width_px as the black AprilTag square outer width, reference_height_px as the black AprilTag square outer height, plus opening_width_px and opening_height_px for the selected opening edges. Do not use the full cropped image width or height unless the crop exactly touches the opening edges.'
                     : 'First estimate these pixel spans from the image: reference_width_px as the black AprilTag square outer width, reference_height_px as the black AprilTag square outer height, opening_width_px, opening_height_px.',
                   'If the reference object or target frame edges are not clearly visible, set reference_detected=false, confidence below 0.5, and dimensions to null. Do not invent dimensions when edge contrast is poor.',
                   'Do not return common default sizes such as 54x72 unless the pixel ratio supports them.',
@@ -543,11 +534,11 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, expectedOpenin
     const data = await response.json();
     const content = data?.choices?.[0]?.message?.content;
     const aiResult = extractJsonObject(content);
-    const measured = buildMeasuredFields(aiResult, knownReferenceWidthIn, knownReferenceHeightIn, targetPixelSize);
+    const measured = buildMeasuredFields(aiResult, knownReferenceWidthIn, knownReferenceHeightIn, targetPixelSize, localMeasurement);
 
     return {
       meta: {
-        version: 'blackbriar-v2.0-vision',
+        version: 'blackbriar-v2.2-opening-edge-scale',
         engine: SCANNER_MODEL,
         measurementSource: measured.source,
         referenceDetected: measured.referenceDetected,
@@ -558,7 +549,10 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, expectedOpenin
         scanBox: scanBox || null,
         scanCropApplied: !!scanCropApplied,
         targetPixelSize: targetPixelSize || null,
-        targetPixelSizeUsed: !!measured.targetPixelSizeUsed
+        targetPixelSizeUsed: !!measured.targetPixelSizeUsed,
+        localMarkerDetected: !!localMeasurement,
+        localMarkerConfidence: localMeasurement?.confidence ?? null,
+        localMarkerEdgePx: localMeasurement?.markerEdgePx ?? null
       },
       fields: {
         openingType: { value: expectedOpeningType, confidence: 0 },
