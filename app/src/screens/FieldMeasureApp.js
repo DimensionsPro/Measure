@@ -2942,8 +2942,9 @@ function renderStep(step, ctx) {
                             style={[styles.photoModalUndo, !precisionPoints.length ? styles.btnMuted : null]}
                             onPress={undoPrecisionPoint}
                             disabled={!precisionPoints.length}
+                            accessibilityLabel={undoPrecisionLabel}
                           >
-                            <Text style={styles.photoModalUndoText}>{undoPrecisionLabel}</Text>
+                            <Text style={styles.photoModalUndoText}>↺</Text>
                           </TouchableOpacity>
                           <TouchableOpacity style={styles.photoModalClose} onPress={() => setOpening({ ...opening, precisionMeasureOpen: false, scanTapPreview: null })}>
                             <Text style={styles.smallActionIcon}>✕</Text>
@@ -3938,8 +3939,8 @@ const styles = StyleSheet.create({
   photoModalTitle: { color: UI.ink, fontSize: 18, fontWeight: '900' },
   photoModalSubTitle: { color: UI.muted, fontSize: 13, fontWeight: '800', marginTop: 2 },
   photoModalHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  photoModalUndo: { minWidth: 94, height: 38, borderRadius: 14, backgroundColor: UI.slate, borderWidth: 1.5, borderColor: UI.borderStrong, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
-  photoModalUndoText: { color: 'white', fontSize: 13, fontWeight: '900', textAlign: 'center' },
+  photoModalUndo: { width: 38, height: 38, borderRadius: 19, backgroundColor: UI.slate, borderWidth: 1.5, borderColor: UI.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  photoModalUndoText: { color: 'white', fontSize: 24, fontWeight: '900', lineHeight: 26, textAlign: 'center' },
   photoModalClose: { width: 38, height: 38, borderRadius: 14, backgroundColor: UI.surfaceWarm, borderWidth: 1.5, borderColor: UI.borderStrong, alignItems: 'center', justifyContent: 'center' },
   photoModalCanvas: { width: '100%', height: 560, maxHeight: '78%', borderRadius: 18, overflow: 'hidden', backgroundColor: '#020617', position: 'relative', borderWidth: 1.5, borderColor: UI.borderStrong },
   photoModalImage: { width: '100%', height: '100%' },
