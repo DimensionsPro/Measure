@@ -44,6 +44,11 @@ const UI = {
 const PASSWORD_EYE_ICON = require('../../assets/images/password-eye.svg');
 const PASSWORD_EYE_OFF_ICON = require('../../assets/images/password-eye-off.svg');
 const LOCAL_AUTH_KEY = 'dimensions_pro_auth_v1';
+const MIN_SCAN_BOX_SIZE = 0.08;
+const SCAN_LOUPE_SIZE = 136;
+const SCAN_LOUPE_ZOOM = 2.7;
+const createDefaultScanBox = () => ({ left: 0.08, top: 0.12, right: 0.92, bottom: 0.88 });
+let activeScanBoxHandle = null;
 
 const steps = [
   'Job Information',
@@ -89,6 +94,11 @@ const emptyOpening = {
   height: '',
   scannedWidth: '',
   scannedHeight: '',
+  photoMeasurePoints: [],
+  bracketLayout: 'auto',
+  bracketCardPoint: null,
+  scanBox: createDefaultScanBox(),
+  photoPreviewOpen: false,
   jamb: '',
   basis: 'Net frame',
   glassType: '',
@@ -1498,7 +1508,7 @@ export default function App() {
       const asset = result.assets[0];
       const stableData = Platform.OS === 'web' ? await makeStableWebPhotoUri(asset) : await buildNativeCompressedDataUri(asset.uri);
       setScanMessage('Photo ready. Tap Scan to detect dimensions.');
-      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '', width: '', height: '', scannedWidth: '', scannedHeight: '' }));
+      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '', width: '', height: '', scannedWidth: '', scannedHeight: '', photoMeasurePoints: [], bracketCardPoint: null, scanBox: createDefaultScanBox(), scanDragPreview: null, photoPreviewOpen: false }));
     }
   };
 
@@ -1513,7 +1523,7 @@ export default function App() {
         const stableData = await readWebImageForApp(file, 1200 * 1024);
         setScanMessage('Photo ready. Tap Scan to detect dimensions.');
         setValidationError('');
-        setOpening(prev => ({ ...prev, photoUri: stableData, photoDataUri: stableData, width: '', height: '', scannedWidth: '', scannedHeight: '' }));
+        setOpening(prev => ({ ...prev, photoUri: stableData, photoDataUri: stableData, width: '', height: '', scannedWidth: '', scannedHeight: '', photoMeasurePoints: [], bracketCardPoint: null, scanBox: createDefaultScanBox(), scanDragPreview: null, photoPreviewOpen: false }));
       } catch {
         setScanMessage('Photo import failed. Try taking a new photo or choosing a smaller image.');
         Alert.alert('Photo import failed', 'Try taking a new photo or choosing a smaller image.');
@@ -1529,7 +1539,7 @@ export default function App() {
       const asset = result.assets[0];
       const stableData = Platform.OS === 'web' ? await makeStableWebPhotoUri(asset) : await buildNativeCompressedDataUri(asset.uri);
       setScanMessage('Photo ready. Tap Scan to detect dimensions.');
-      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '', width: '', height: '', scannedWidth: '', scannedHeight: '' }));
+      setOpening(prev => ({ ...prev, photoUri: stableData || asset.uri, photoDataUri: stableData || prev.photoDataUri || '', width: '', height: '', scannedWidth: '', scannedHeight: '', photoMeasurePoints: [], bracketCardPoint: null, scanBox: createDefaultScanBox(), scanDragPreview: null, photoPreviewOpen: false }));
     }
   };
 
@@ -1579,10 +1589,21 @@ export default function App() {
     setValidationError('');
     setScanMessage('Scanning photo...');
     try {
+      const normalizedScanBox = normalizeScanBox(opening.scanBox);
+      const scanPhoto = await buildScanPhotoForAnalysis({
+        uri: opening.photoDataUri || opening.photoUri,
+        scanBox: normalizedScanBox,
+        canvasSize: opening.scanCanvasSize,
+        ImageManipulator,
+        Image
+      });
       const result = await analyzeWindowPhoto({
-        photoUri: opening.photoDataUri || opening.photoUri,
+        photoUri: scanPhoto?.uri || opening.photoDataUri || opening.photoUri,
         useCreditCard,
         expectedOpeningType: opening.openingType,
+        scanBox: normalizedScanBox,
+        scanCropApplied: !!scanPhoto?.uri,
+        targetPixelSize: scanPhoto?.targetPixelSize || null,
         Image
       });
 
@@ -2469,6 +2490,65 @@ export default function App() {
 
 function renderStep(step, ctx) {
   const { job, setJob, opening, setOpening, setMeasureMethodTouched, capturePhoto, pickPhotoFromLibrary, captureExtraPhoto, pickExtraPhotoFromLibrary, scanFromCurrentPhoto, scanBusy, scanMessage, setScanMessage } = ctx;
+  const scanBox = normalizeScanBox(opening.scanBox);
+  const scanBoxStyle = getScanBoxStyle(scanBox);
+  const scanLoupeStyles = getScanLoupeStyles(opening.scanDragPreview, opening.scanCanvasSize);
+  const updateScanBox = (nextBox, message, dragPreview) => {
+    setOpening(prev => ({
+      ...prev,
+      scanBox: normalizeScanBox(nextBox),
+      scanDragPreview: dragPreview === undefined ? prev.scanDragPreview : dragPreview,
+      width: '',
+      height: '',
+      scannedWidth: '',
+      scannedHeight: ''
+    }));
+    if (message) setScanMessage(message);
+  };
+  const getScanCanvasPoint = (event) => {
+    if (!(opening.photoDataUri || opening.photoUri)) return;
+
+    const nativeEvent = event.nativeEvent || {};
+    const locationX = Number.isFinite(nativeEvent.locationX) ? nativeEvent.locationX : nativeEvent.offsetX;
+    const locationY = Number.isFinite(nativeEvent.locationY) ? nativeEvent.locationY : nativeEvent.offsetY;
+    const targetRect = event?.currentTarget?.getBoundingClientRect?.();
+    const width = Number(nativeEvent.target?.clientWidth || targetRect?.width || opening.scanCanvasSize?.width || nativeEvent.target?.width) || 0;
+    const height = Number(nativeEvent.target?.clientHeight || targetRect?.height || opening.scanCanvasSize?.height || nativeEvent.target?.height) || 0;
+    if (!Number.isFinite(locationX) || !Number.isFinite(locationY) || width <= 0 || height <= 0) return null;
+    return {
+      x: Math.max(0, Math.min(1, locationX / width)),
+      y: Math.max(0, Math.min(1, locationY / height))
+    };
+  };
+  const handleScanBoxGrant = (event) => {
+    const point = getScanCanvasPoint(event);
+    activeScanBoxHandle = point ? pickScanBoxHandle(scanBox, point.x, point.y) : null;
+    if (point && activeScanBoxHandle !== 'move') {
+      updateScanBox(
+        updateScanBoxForHandle(scanBox, activeScanBoxHandle, point.x, point.y),
+        null,
+        { ...point, handle: activeScanBoxHandle }
+      );
+    } else if (point) {
+      updateScanBox(scanBox, null, { ...point, handle: activeScanBoxHandle });
+    }
+  };
+  const handleScanBoxMove = (event) => {
+    const point = getScanCanvasPoint(event);
+    if (!point) return;
+    const handle = activeScanBoxHandle || pickScanBoxHandle(scanBox, point.x, point.y);
+    updateScanBox(
+      updateScanBoxForHandle(scanBox, handle, point.x, point.y),
+      null,
+      { ...point, handle }
+    );
+  };
+  const handleScanBoxRelease = () => {
+    activeScanBoxHandle = null;
+    setOpening(prev => ({ ...prev, scanDragPreview: null }));
+    setScanMessage('Window box set. Tap Scan Photo when ready.');
+  };
+
   switch (step) {
     case 0:
       return (
@@ -2538,13 +2618,21 @@ function renderStep(step, ctx) {
           {opening.measureMethod === 'snap' ? (
             <View style={styles.scanChoiceCard}>
               <Text style={styles.scanChoiceTitle}>DimensionSnap</Text>
-              <Text style={styles.scanChoiceText}>Add a clear, straight-on photo with the DimensionsPro marker card visible. Then tap Scan.</Text>
+              <Text style={styles.scanChoiceText}>Add a straight-on photo, then adjust the box around the window and marker card before scanning.</Text>
               {(opening.photoDataUri || opening.photoUri) ? (
-                <View style={styles.photoPreviewWrap}>
-                  <Image source={{ uri: opening.photoDataUri || opening.photoUri }} style={styles.previewPhoto} />
+                <Pressable
+                  style={styles.photoPreviewWrap}
+                  onPress={() => setOpening({ ...opening, photoPreviewOpen: true })}
+                >
+                  <Image pointerEvents="none" source={{ uri: opening.photoDataUri || opening.photoUri }} style={styles.previewPhoto} />
+                  <View pointerEvents="none" style={[styles.scanBoxPreview, scanBoxStyle]} />
+                  <View pointerEvents="none" style={styles.photoExpandHint}>
+                    <Text style={styles.photoExpandHintText}>Adjust box</Text>
+                  </View>
                   <TouchableOpacity
                     style={styles.photoOverlayDelete}
-                    onPress={() => {
+                    onPress={(event) => {
+                      event?.stopPropagation?.();
                       setOpening({
                         ...opening,
                         photoUri: '',
@@ -2552,14 +2640,19 @@ function renderStep(step, ctx) {
                         width: '',
                         height: '',
                         scannedWidth: '',
-                        scannedHeight: ''
+                        scannedHeight: '',
+                        photoMeasurePoints: [],
+                        bracketCardPoint: null,
+                        scanBox: createDefaultScanBox(),
+                        scanDragPreview: null,
+                        photoPreviewOpen: false
                       });
                       setScanMessage('');
                     }}
                   >
                     <Text style={styles.photoOverlayDeleteText}>🗑</Text>
                   </TouchableOpacity>
-                </View>
+                </Pressable>
               ) : (
                 <View style={styles.scanEmptyState}>
                   <Text style={styles.scanEmptyIcon}>▣</Text>
@@ -2570,13 +2663,6 @@ function renderStep(step, ctx) {
                 <TouchableOpacity style={styles.btn} onPress={capturePhoto}><Text style={styles.btnText}>Capture Photo</Text></TouchableOpacity>
                 <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={pickPhotoFromLibrary}><Text style={styles.btnText}>Pick from Library</Text></TouchableOpacity>
               </View>
-              {(opening.photoDataUri || opening.photoUri) ? (
-                <View style={styles.rowGap}>
-                  <TouchableOpacity style={[styles.btn, styles.scanPrimaryBtn]} onPress={() => scanFromCurrentPhoto(true)} disabled={scanBusy}>
-                    <Text style={styles.btnText}>{scanBusy ? 'Scanning...' : 'Scan Photo'}</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : null}
               {scanBusy ? (
                 <View style={styles.scanStatusRow}>
                   <ActivityIndicator color="#38bdf8" />
@@ -2584,6 +2670,97 @@ function renderStep(step, ctx) {
                 </View>
               ) : null}
               {scanMessage ? <Text style={styles.scanStatusText}>{scanMessage}</Text> : null}
+              {(opening.photoDataUri || opening.photoUri) ? (
+                <View style={styles.scanBoxTools}>
+                  <Text style={styles.scanBoxToolsTitle}>Window box</Text>
+                  <Text style={styles.scanBoxToolsText}>Tap the photo and drag the box around the exact window or section, keeping the marker card inside the box.</Text>
+                  <View style={styles.scanActionRow}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnGhost]}
+                      onPress={() => {
+                        setOpening({ ...opening, scanBox: createDefaultScanBox(), scanDragPreview: null, width: '', height: '', scannedWidth: '', scannedHeight: '' });
+                        setScanMessage('Window box reset. Tap the photo to adjust it.');
+                      }}
+                    >
+                      <Text style={styles.btnText}>Reset Box</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.btn, styles.scanPrimaryBtn]} onPress={() => scanFromCurrentPhoto(true)} disabled={scanBusy}>
+                      <Text style={styles.btnText}>{scanBusy ? 'Scanning...' : 'Scan Photo'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
+              {(opening.photoDataUri || opening.photoUri) ? (
+                <Modal visible={!!opening.photoPreviewOpen} transparent animationType="fade" onRequestClose={() => setOpening({ ...opening, photoPreviewOpen: false })}>
+                  <View style={styles.photoModalBackdrop}>
+                    <View style={styles.photoModalCard}>
+                      <View style={styles.photoModalHeader}>
+                        <Text style={styles.photoModalTitle}>Adjust window box</Text>
+                        <TouchableOpacity style={styles.photoModalClose} onPress={() => setOpening({ ...opening, photoPreviewOpen: false })}>
+                          <Text style={styles.smallActionIcon}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View
+                        style={styles.photoModalCanvas}
+                        onLayout={({ nativeEvent }) => {
+                          const nextSize = {
+                            width: nativeEvent.layout?.width || 0,
+                            height: nativeEvent.layout?.height || 0
+                          };
+                          if (nextSize.width && nextSize.height && (opening.scanCanvasSize?.width !== nextSize.width || opening.scanCanvasSize?.height !== nextSize.height)) {
+                            setOpening(prev => ({ ...prev, scanCanvasSize: nextSize }));
+                          }
+                        }}
+                        onStartShouldSetResponder={() => true}
+                        onMoveShouldSetResponder={() => true}
+                        onResponderGrant={handleScanBoxGrant}
+                        onResponderMove={handleScanBoxMove}
+                        onResponderRelease={handleScanBoxRelease}
+                        onResponderTerminate={handleScanBoxRelease}
+                      >
+                        <Image pointerEvents="none" source={{ uri: opening.photoDataUri || opening.photoUri }} style={styles.photoModalImage} resizeMode="contain" />
+                        <View pointerEvents="none" style={[styles.scanBoxOverlay, scanBoxStyle]}>
+                          <View style={[styles.scanBoxCorner, styles.scanBoxCornerTopLeft]} />
+                          <View style={[styles.scanBoxCorner, styles.scanBoxCornerTopRight]} />
+                          <View style={[styles.scanBoxCorner, styles.scanBoxCornerBottomLeft]} />
+                          <View style={[styles.scanBoxCorner, styles.scanBoxCornerBottomRight]} />
+                          <View style={[styles.scanBoxEdgeHandle, styles.scanBoxEdgeTop]} />
+                          <View style={[styles.scanBoxEdgeHandle, styles.scanBoxEdgeRight]} />
+                          <View style={[styles.scanBoxEdgeHandle, styles.scanBoxEdgeBottom]} />
+                          <View style={[styles.scanBoxEdgeHandle, styles.scanBoxEdgeLeft]} />
+                        </View>
+                        {scanLoupeStyles ? (
+                          <View pointerEvents="none" style={[styles.scanLoupe, scanLoupeStyles.wrap]}>
+                            <Image
+                              pointerEvents="none"
+                              source={{ uri: opening.photoDataUri || opening.photoUri }}
+                              style={[styles.scanLoupeImage, scanLoupeStyles.image]}
+                              resizeMode="contain"
+                            />
+                            <View style={styles.scanLoupeCrosshairHorizontal} />
+                            <View style={styles.scanLoupeCrosshairVertical} />
+                          </View>
+                        ) : null}
+                      </View>
+                      <View style={styles.photoModalActions}>
+                        <TouchableOpacity
+                          style={[styles.btn, styles.btnGhost, styles.photoModalActionBtn]}
+                          onPress={() => updateScanBox(createDefaultScanBox(), 'Window box reset. Drag it around the opening.')}
+                        >
+                          <Text style={styles.btnText}>Reset</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.btn, styles.scanPrimaryBtn, styles.photoModalActionBtn]}
+                          onPress={() => setOpening({ ...opening, photoPreviewOpen: false })}
+                        >
+                          <Text style={styles.btnText}>Done</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <Text style={styles.photoModalHint}>Keep the marker card inside the box. Drag an edge or corner around the window; drag inside the box to move it.</Text>
+                    </View>
+                  </View>
+                </Modal>
+              ) : null}
             </View>
           ) : null}
 
@@ -2953,6 +3130,283 @@ function isValidInchFractionMeasurement(v) {
   return false;
 }
 
+function clamp01(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+function normalizeScanBox(box) {
+  const fallback = createDefaultScanBox();
+  const raw = box && typeof box === 'object' ? box : fallback;
+  let left = clamp01(raw.left ?? fallback.left);
+  let top = clamp01(raw.top ?? fallback.top);
+  let right = clamp01(raw.right ?? fallback.right);
+  let bottom = clamp01(raw.bottom ?? fallback.bottom);
+
+  if (right <= left) {
+    left = fallback.left;
+    right = fallback.right;
+  }
+  if (bottom <= top) {
+    top = fallback.top;
+    bottom = fallback.bottom;
+  }
+
+  if (right - left < MIN_SCAN_BOX_SIZE) {
+    const center = (left + right) / 2;
+    left = Math.max(0, center - MIN_SCAN_BOX_SIZE / 2);
+    right = Math.min(1, left + MIN_SCAN_BOX_SIZE);
+    left = Math.max(0, right - MIN_SCAN_BOX_SIZE);
+  }
+  if (bottom - top < MIN_SCAN_BOX_SIZE) {
+    const center = (top + bottom) / 2;
+    top = Math.max(0, center - MIN_SCAN_BOX_SIZE / 2);
+    bottom = Math.min(1, top + MIN_SCAN_BOX_SIZE);
+    top = Math.max(0, bottom - MIN_SCAN_BOX_SIZE);
+  }
+
+  return { left, top, right, bottom };
+}
+
+function getScanBoxStyle(box) {
+  const normalized = normalizeScanBox(box);
+  return {
+    left: `${normalized.left * 100}%`,
+    top: `${normalized.top * 100}%`,
+    width: `${(normalized.right - normalized.left) * 100}%`,
+    height: `${(normalized.bottom - normalized.top) * 100}%`
+  };
+}
+
+function getScanLoupeStyles(preview, canvasSize) {
+  const width = Number(canvasSize?.width) || 0;
+  const height = Number(canvasSize?.height) || 0;
+  const x = clamp01(preview?.x);
+  const y = clamp01(preview?.y);
+  if (!preview || width <= 0 || height <= 0) return null;
+
+  const margin = 12;
+  const loupeLeft = x > 0.5 ? margin : Math.max(margin, width - SCAN_LOUPE_SIZE - margin);
+  const loupeTop = y > 0.45 ? margin : Math.max(margin, height - SCAN_LOUPE_SIZE - margin);
+  const zoomedWidth = width * SCAN_LOUPE_ZOOM;
+  const zoomedHeight = height * SCAN_LOUPE_ZOOM;
+
+  return {
+    wrap: {
+      left: loupeLeft,
+      top: loupeTop,
+      width: SCAN_LOUPE_SIZE,
+      height: SCAN_LOUPE_SIZE,
+      borderRadius: SCAN_LOUPE_SIZE / 2
+    },
+    image: {
+      width: zoomedWidth,
+      height: zoomedHeight,
+      left: (SCAN_LOUPE_SIZE / 2) - (x * zoomedWidth),
+      top: (SCAN_LOUPE_SIZE / 2) - (y * zoomedHeight)
+    }
+  };
+}
+
+function pickScanBoxHandle(box, x, y) {
+  const b = normalizeScanBox(box);
+  const edgeThreshold = 0.08;
+  const nearLeft = Math.abs(x - b.left) <= edgeThreshold;
+  const nearRight = Math.abs(x - b.right) <= edgeThreshold;
+  const nearTop = Math.abs(y - b.top) <= edgeThreshold;
+  const nearBottom = Math.abs(y - b.bottom) <= edgeThreshold;
+  const inside = x >= b.left && x <= b.right && y >= b.top && y <= b.bottom;
+
+  if (nearLeft && nearTop) return 'top-left';
+  if (nearRight && nearTop) return 'top-right';
+  if (nearLeft && nearBottom) return 'bottom-left';
+  if (nearRight && nearBottom) return 'bottom-right';
+  if (nearTop && inside) return 'top';
+  if (nearBottom && inside) return 'bottom';
+  if (nearLeft && inside) return 'left';
+  if (nearRight && inside) return 'right';
+  if (inside) return 'move';
+
+  const horizontal = Math.abs(x - b.left) < Math.abs(x - b.right) ? 'left' : 'right';
+  const vertical = Math.abs(y - b.top) < Math.abs(y - b.bottom) ? 'top' : 'bottom';
+  return `${vertical}-${horizontal}`;
+}
+
+function updateScanBoxForHandle(box, handle, x, y) {
+  const b = normalizeScanBox(box);
+  const next = { ...b };
+  const pointerX = clamp01(x);
+  const pointerY = clamp01(y);
+
+  if (handle === 'move') {
+    const width = b.right - b.left;
+    const height = b.bottom - b.top;
+    next.left = clamp01(pointerX - width / 2);
+    next.top = clamp01(pointerY - height / 2);
+    next.right = next.left + width;
+    next.bottom = next.top + height;
+    if (next.right > 1) {
+      next.right = 1;
+      next.left = 1 - width;
+    }
+    if (next.bottom > 1) {
+      next.bottom = 1;
+      next.top = 1 - height;
+    }
+    return normalizeScanBox(next);
+  }
+
+  if (handle.includes('left')) next.left = Math.min(pointerX, b.right - MIN_SCAN_BOX_SIZE);
+  if (handle.includes('right')) next.right = Math.max(pointerX, b.left + MIN_SCAN_BOX_SIZE);
+  if (handle.includes('top')) next.top = Math.min(pointerY, b.bottom - MIN_SCAN_BOX_SIZE);
+  if (handle.includes('bottom')) next.bottom = Math.max(pointerY, b.top + MIN_SCAN_BOX_SIZE);
+
+  return normalizeScanBox(next);
+}
+
+function getImageSizeForUri(uri, ImageModule) {
+  return new Promise(resolve => {
+    if (!uri || !ImageModule?.getSize) {
+      resolve({ width: 0, height: 0 });
+      return;
+    }
+
+    ImageModule.getSize(
+      uri,
+      (width, height) => resolve({ width: Number(width) || 0, height: Number(height) || 0 }),
+      () => resolve({ width: 0, height: 0 })
+    );
+  });
+}
+
+function getCropFromDisplayedScanBox(scanBox, imageSize, canvasSize) {
+  const box = normalizeScanBox(scanBox);
+  const imageWidth = Number(imageSize?.width) || 0;
+  const imageHeight = Number(imageSize?.height) || 0;
+  if (imageWidth <= 0 || imageHeight <= 0) return null;
+
+  const canvasWidth = Number(canvasSize?.width) || 0;
+  const canvasHeight = Number(canvasSize?.height) || 0;
+  let cropLeft;
+  let cropTop;
+  let cropRight;
+  let cropBottom;
+
+  if (canvasWidth > 0 && canvasHeight > 0) {
+    const scale = Math.min(canvasWidth / imageWidth, canvasHeight / imageHeight);
+    const displayedWidth = imageWidth * scale;
+    const displayedHeight = imageHeight * scale;
+    const offsetX = (canvasWidth - displayedWidth) / 2;
+    const offsetY = (canvasHeight - displayedHeight) / 2;
+    const boxLeft = box.left * canvasWidth;
+    const boxTop = box.top * canvasHeight;
+    const boxRight = box.right * canvasWidth;
+    const boxBottom = box.bottom * canvasHeight;
+
+    const visibleLeft = Math.max(offsetX, boxLeft);
+    const visibleTop = Math.max(offsetY, boxTop);
+    const visibleRight = Math.min(offsetX + displayedWidth, boxRight);
+    const visibleBottom = Math.min(offsetY + displayedHeight, boxBottom);
+    if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) return null;
+
+    cropLeft = (visibleLeft - offsetX) / scale;
+    cropTop = (visibleTop - offsetY) / scale;
+    cropRight = (visibleRight - offsetX) / scale;
+    cropBottom = (visibleBottom - offsetY) / scale;
+  } else {
+    cropLeft = box.left * imageWidth;
+    cropTop = box.top * imageHeight;
+    cropRight = box.right * imageWidth;
+    cropBottom = box.bottom * imageHeight;
+  }
+
+  const originX = Math.max(0, Math.floor(cropLeft));
+  const originY = Math.max(0, Math.floor(cropTop));
+  const maxX = Math.min(imageWidth, Math.ceil(cropRight));
+  const maxY = Math.min(imageHeight, Math.ceil(cropBottom));
+  const width = Math.max(1, maxX - originX);
+  const height = Math.max(1, maxY - originY);
+
+  return { originX, originY, width, height };
+}
+
+function loadBrowserImage(uri) {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined' || !window.Image) {
+      reject(new Error('Browser image loading is unavailable.'));
+      return;
+    }
+
+    const img = new window.Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = uri;
+  });
+}
+
+async function cropWebImageToDataUri(uri, crop) {
+  if (typeof document === 'undefined') return '';
+
+  const img = await loadBrowserImage(uri);
+  const maxOutputEdge = 1800;
+  const scale = Math.min(1, maxOutputEdge / Math.max(crop.width, crop.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(crop.width * scale));
+  canvas.height = Math.max(1, Math.round(crop.height * scale));
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(
+    img,
+    crop.originX,
+    crop.originY,
+    crop.width,
+    crop.height,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+  return {
+    uri: canvas.toDataURL('image/jpeg', 0.9),
+    targetPixelSize: { width: canvas.width, height: canvas.height }
+  };
+}
+
+async function cropNativeImageToDataUri(uri, crop, imageManipulator) {
+  if (!imageManipulator?.manipulateAsync) return '';
+
+  const result = await imageManipulator.manipulateAsync(
+    uri,
+    [{ crop }],
+    { compress: 0.9, format: imageManipulator.SaveFormat.JPEG, base64: true }
+  );
+  return {
+    uri: result?.base64 ? `data:image/jpeg;base64,${result.base64}` : result?.uri || '',
+    targetPixelSize: {
+      width: Number(result?.width) || crop.width,
+      height: Number(result?.height) || crop.height
+    }
+  };
+}
+
+async function buildScanPhotoForAnalysis({ uri, scanBox, canvasSize, ImageManipulator: imageManipulator, Image: ImageModule }) {
+  if (!uri) return '';
+
+  try {
+    const imageSize = await getImageSizeForUri(uri, ImageModule);
+    const crop = getCropFromDisplayedScanBox(scanBox, imageSize, canvasSize);
+    if (!crop) return '';
+
+    if (Platform.OS === 'web') {
+      return await cropWebImageToDataUri(uri, crop);
+    }
+
+    return await cropNativeImageToDataUri(uri, crop, imageManipulator);
+  } catch {
+    return null;
+  }
+}
+
 function formatMeasurementToQuarterInches(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return '';
@@ -2971,6 +3425,25 @@ function formatMeasurementToQuarterInches(value) {
   if (remainder === 1) return `${whole} 1/4`;
   if (remainder === 2) return `${whole} 1/2`;
   return `${whole} 3/4`;
+}
+
+function pointDistance(a, b) {
+  if (!a || !b) return 0;
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function calculateManualPhotoMeasurement(points) {
+  if (!Array.isArray(points) || points.length < 6) return null;
+  const markerPx = pointDistance(points[0], points[1]);
+  const widthPx = pointDistance(points[2], points[3]);
+  const heightPx = pointDistance(points[4], points[5]);
+  if (markerPx <= 0 || widthPx <= 0 || heightPx <= 0) return null;
+
+  const pxToIn = MANUAL_MARKER_EDGE_IN / markerPx;
+  return {
+    widthIn: widthPx * pxToIn,
+    heightIn: heightPx * pxToIn
+  };
 }
 
 function buildOperation(opening) {
@@ -3095,6 +3568,36 @@ const styles = StyleSheet.create({
   previewPhoto: { width: '100%', height: 230, borderRadius: 22, borderWidth: 2, borderColor: UI.borderStrong },
   photoOverlayDelete: { position: 'absolute', right: 12, bottom: 12, width: 44, height: 44, borderRadius: 16, backgroundColor: 'rgba(255,253,248,0.94)', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: UI.borderStrong },
   photoOverlayDeleteText: { fontSize: 17, color: UI.ink },
+  photoExpandHint: { position: 'absolute', left: 12, bottom: 12, backgroundColor: 'rgba(15,23,42,0.76)', borderWidth: 1, borderColor: 'rgba(248,250,252,0.22)', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
+  photoExpandHintText: { color: UI.ink, fontSize: 12, fontWeight: '900' },
+  scanBoxPreview: { position: 'absolute', borderWidth: 3, borderColor: UI.secondary, borderRadius: 8, backgroundColor: 'rgba(6,182,212,0.10)' },
+  cardSelectionBox: { position: 'absolute', width: 44, height: 44, marginLeft: -22, marginTop: -22, borderWidth: 3, borderColor: UI.secondary, borderRadius: 8, backgroundColor: 'rgba(6,182,212,0.12)' },
+  cardSelectionBoxLarge: { position: 'absolute', width: 56, height: 56, marginLeft: -28, marginTop: -28, borderWidth: 4, borderColor: UI.secondary, borderRadius: 10, backgroundColor: 'rgba(6,182,212,0.13)' },
+  photoModalBackdrop: { flex: 1, backgroundColor: 'rgba(2,6,23,0.92)', justifyContent: 'center', alignItems: 'center', padding: 14 },
+  photoModalCard: { width: '100%', maxWidth: 720, maxHeight: '92%', backgroundColor: UI.surface, borderWidth: 1.5, borderColor: UI.borderStrong, borderRadius: 24, padding: 12 },
+  photoModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  photoModalTitle: { color: UI.ink, fontSize: 18, fontWeight: '900' },
+  photoModalClose: { width: 38, height: 38, borderRadius: 14, backgroundColor: UI.surfaceWarm, borderWidth: 1.5, borderColor: UI.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  photoModalCanvas: { width: '100%', height: 560, maxHeight: '78%', borderRadius: 18, overflow: 'hidden', backgroundColor: '#020617', position: 'relative', borderWidth: 1.5, borderColor: UI.borderStrong },
+  photoModalImage: { width: '100%', height: '100%' },
+  scanBoxOverlay: { position: 'absolute', borderWidth: 3, borderColor: UI.secondary, borderRadius: 10, backgroundColor: 'rgba(6,182,212,0.10)' },
+  scanBoxCorner: { position: 'absolute', width: 30, height: 30, borderColor: '#e0faff' },
+  scanBoxCornerTopLeft: { left: -3, top: -3, borderLeftWidth: 6, borderTopWidth: 6, borderTopLeftRadius: 10 },
+  scanBoxCornerTopRight: { right: -3, top: -3, borderRightWidth: 6, borderTopWidth: 6, borderTopRightRadius: 10 },
+  scanBoxCornerBottomLeft: { left: -3, bottom: -3, borderLeftWidth: 6, borderBottomWidth: 6, borderBottomLeftRadius: 10 },
+  scanBoxCornerBottomRight: { right: -3, bottom: -3, borderRightWidth: 6, borderBottomWidth: 6, borderBottomRightRadius: 10 },
+  scanBoxEdgeHandle: { position: 'absolute', backgroundColor: '#e0faff', borderRadius: 999 },
+  scanBoxEdgeTop: { top: -5, left: '42%', width: '16%', height: 7 },
+  scanBoxEdgeRight: { right: -5, top: '42%', width: 7, height: '16%' },
+  scanBoxEdgeBottom: { bottom: -5, left: '42%', width: '16%', height: 7 },
+  scanBoxEdgeLeft: { left: -5, top: '42%', width: 7, height: '16%' },
+  scanLoupe: { position: 'absolute', overflow: 'hidden', borderWidth: 4, borderColor: '#e0faff', backgroundColor: '#020617', shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, zIndex: 12 },
+  scanLoupeImage: { position: 'absolute' },
+  scanLoupeCrosshairHorizontal: { position: 'absolute', left: 28, right: 28, top: '50%', height: 2, marginTop: -1, backgroundColor: 'rgba(224,250,255,0.95)' },
+  scanLoupeCrosshairVertical: { position: 'absolute', top: 28, bottom: 28, left: '50%', width: 2, marginLeft: -1, backgroundColor: 'rgba(224,250,255,0.95)' },
+  photoModalActions: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  photoModalActionBtn: { marginTop: 0, minHeight: 52 },
+  photoModalHint: { color: UI.muted, fontSize: 13, lineHeight: 18, fontWeight: '800', marginTop: 10 },
   cardTopRow: { flexDirection: 'row', alignItems: 'center' },
   titleQtyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 4, marginBottom: 1 },
   qtyInputInline: { backgroundColor: UI.secondarySoft, borderWidth: 1, borderColor: '#9accc4', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6, minWidth: 54, alignItems: 'center' },
@@ -3241,6 +3744,22 @@ const styles = StyleSheet.create({
   scanPrimaryBtn: { backgroundColor: UI.secondary, flex: 1 },
   scanStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   scanStatusText: { color: UI.muted, fontSize: 12, lineHeight: 16, marginTop: 6 },
+  scanBoxTools: { marginTop: 14, borderTopWidth: 1, borderTopColor: UI.border, paddingTop: 14 },
+  scanBoxToolsTitle: { color: UI.ink, fontSize: 16, fontWeight: '900', lineHeight: 22, marginBottom: 4 },
+  scanBoxToolsText: { color: UI.muted, fontSize: 13, fontWeight: '700', lineHeight: 18 },
+  manualMeasureCard: { marginTop: 14, borderTopWidth: 1, borderTopColor: UI.border, paddingTop: 14 },
+  manualMeasureStepTitle: { color: UI.ink, fontSize: 16, fontWeight: '900', lineHeight: 22, marginBottom: 4 },
+  manualMeasureStepDetail: { color: UI.muted, fontSize: 13, fontWeight: '700', lineHeight: 18, marginBottom: 10 },
+  bracketOptionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
+  bracketOption: { minWidth: '47%', flexGrow: 1, borderWidth: 1.5, borderColor: UI.borderStrong, borderRadius: 15, backgroundColor: UI.surfaceWarm, paddingVertical: 11, paddingHorizontal: 10, alignItems: 'center' },
+  bracketOptionActive: { backgroundColor: UI.secondarySoft, borderColor: UI.secondary },
+  bracketOptionText: { color: UI.ink, fontSize: 13, fontWeight: '900', textAlign: 'center' },
+  manualMeasureCanvas: { width: '100%', height: 560, backgroundColor: '#020617', borderWidth: 1.5, borderColor: UI.borderStrong, borderRadius: 18, overflow: 'hidden', position: 'relative' },
+  manualMeasureImage: { width: '100%', height: '100%' },
+  manualMeasureDot: { position: 'absolute', width: 22, height: 22, borderRadius: 11, backgroundColor: UI.primary, borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  manualMeasureDotText: { color: '#fff', fontSize: 11, fontWeight: '900', lineHeight: 13 },
+  manualMeasureChecklist: { marginTop: 10, gap: 3 },
+  manualMeasureChecklistText: { color: UI.muted, fontSize: 12, fontWeight: '800', lineHeight: 17 },
   unfinishedBadge: { color: UI.primaryDeep, fontSize: 12, fontWeight: '900', borderWidth: 1, borderColor: '#fdba74', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, backgroundColor: '#fff7ed' },
   rowDeleteX: { width: 22, height: 22, borderRadius: 8, backgroundColor: UI.danger, alignItems: 'center', justifyContent: 'center' },
   rowDeleteXFloating: { position: 'absolute', right: 10, top: 8, width: 22, height: 22, borderRadius: 8, backgroundColor: UI.danger, alignItems: 'center', justifyContent: 'center', zIndex: 6 },
