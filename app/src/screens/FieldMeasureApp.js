@@ -2937,9 +2937,18 @@ function renderStep(step, ctx) {
                           <Text style={styles.photoModalTitle}>Precision taps</Text>
                           <Text style={styles.photoModalSubTitle}>{precisionMeasurement ? `Measured ${formatMeasurementToQuarterInches(precisionMeasurement.widthIn)}" x ${formatMeasurementToQuarterInches(precisionMeasurement.heightIn)}"` : `Next: ${precisionNextLabel}`}</Text>
                         </View>
-                        <TouchableOpacity style={styles.photoModalClose} onPress={() => setOpening({ ...opening, precisionMeasureOpen: false, scanTapPreview: null })}>
-                          <Text style={styles.smallActionIcon}>✕</Text>
-                        </TouchableOpacity>
+                        <View style={styles.photoModalHeaderActions}>
+                          <TouchableOpacity
+                            style={[styles.photoModalUndo, !precisionPoints.length ? styles.btnMuted : null]}
+                            onPress={undoPrecisionPoint}
+                            disabled={!precisionPoints.length}
+                          >
+                            <Text style={styles.photoModalUndoText}>{undoPrecisionLabel}</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={styles.photoModalClose} onPress={() => setOpening({ ...opening, precisionMeasureOpen: false, scanTapPreview: null })}>
+                            <Text style={styles.smallActionIcon}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
                       <View
                         style={styles.manualMeasureCanvas}
@@ -2989,13 +2998,6 @@ function renderStep(step, ctx) {
                         ) : null}
                       </View>
                       <View style={styles.photoModalActions}>
-                        <TouchableOpacity
-                          style={[styles.btn, styles.btnGhost, styles.photoModalActionBtn]}
-                          onPress={undoPrecisionPoint}
-                          disabled={!precisionPoints.length}
-                        >
-                          <Text style={styles.btnText}>{undoPrecisionLabel}</Text>
-                        </TouchableOpacity>
                         <TouchableOpacity
                           style={[styles.btn, styles.btnGhost, styles.photoModalActionBtn]}
                           onPress={() => resetPrecisionPoints()}
@@ -3935,6 +3937,9 @@ const styles = StyleSheet.create({
   photoModalTitleBlock: { flex: 1, paddingRight: 10 },
   photoModalTitle: { color: UI.ink, fontSize: 18, fontWeight: '900' },
   photoModalSubTitle: { color: UI.muted, fontSize: 13, fontWeight: '800', marginTop: 2 },
+  photoModalHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  photoModalUndo: { minWidth: 94, height: 38, borderRadius: 14, backgroundColor: UI.slate, borderWidth: 1.5, borderColor: UI.borderStrong, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
+  photoModalUndoText: { color: 'white', fontSize: 13, fontWeight: '900', textAlign: 'center' },
   photoModalClose: { width: 38, height: 38, borderRadius: 14, backgroundColor: UI.surfaceWarm, borderWidth: 1.5, borderColor: UI.borderStrong, alignItems: 'center', justifyContent: 'center' },
   photoModalCanvas: { width: '100%', height: 560, maxHeight: '78%', borderRadius: 18, overflow: 'hidden', backgroundColor: '#020617', position: 'relative', borderWidth: 1.5, borderColor: UI.borderStrong },
   photoModalImage: { width: '100%', height: '100%' },
