@@ -1648,7 +1648,9 @@ export default function App() {
 
       const detectedSize = isValidInchFractionMeasurement(next.width) && isValidInchFractionMeasurement(next.height);
       if (!detectedSize) {
-        const message = 'Scan could not detect reliable dimensions. Make sure the DimensionsPro marker card and opening edges are clear, or use Manual Entry.';
+        const message = String(result.meta?.measurementSource || '').includes('implausible-size')
+          ? 'Scan rejected an implausibly small result. Move the box edges to the full opening and make sure the marker card is clear, then scan again.'
+          : 'Scan could not detect reliable dimensions. Make sure the DimensionsPro marker card and opening edges are clear, or use Manual Entry.';
         setScanMessage(message);
         setValidationError(message);
         Alert.alert('Scan needs a clearer photo', message);

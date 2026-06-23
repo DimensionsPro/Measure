@@ -26,6 +26,7 @@ const SCANNER_MODEL = 'google/gemini-2.5-flash';
 const SCANNER_ENV_KEY = 'EXPO_PUBLIC_OPENROUTER_KEY';
 const COMMON_GUESS_PAIRS = new Set(['54x72', '72x54', '36x48', '48x36', '48x60', '60x48']);
 const LOCAL_MARKER_MIN_CONFIDENCE = 0.72;
+const MIN_REASONABLE_OPENING_EDGE_IN = 16;
 
 function getImageSizeAsync(uri, Image) {
   return new Promise((resolve) => {
@@ -312,6 +313,32 @@ async function detectMarkerScaleLocally(imageUrl, targetPixelSize = null) {
   };
 }
 
+function isPlausibleLocalOpeningMeasurement(measurement, expectedOpeningType = 'Window') {
+  const widthIn = numeric(measurement?.widthIn);
+  const heightIn = numeric(measurement?.heightIn);
+  if (widthIn === null || heightIn === null) return false;
+
+  const minEdge = Math.min(widthIn, heightIn);
+  const maxEdge = Math.max(widthIn, heightIn);
+  const minReasonableEdge = expectedOpeningType === 'Skylight' ? 12 : MIN_REASONABLE_OPENING_EDGE_IN;
+
+  if (minEdge < minReasonableEdge) return false;
+  if (expectedOpeningType === 'Door' && maxEdge < 60) return false;
+  if (maxEdge > 180) return false;
+
+  return true;
+}
+
+function applyOpeningPlausibility(measured, expectedOpeningType = 'Window') {
+  if (isPlausibleLocalOpeningMeasurement(measured, expectedOpeningType)) return measured;
+
+  return {
+    ...measured,
+    confidence: Math.min(numeric(measured?.confidence) ?? 0, 0.49),
+    source: measured?.source ? `${measured.source}-implausible-size` : 'implausible-size'
+  };
+}
+
 function buildMeasuredFields(aiResult, knownReferenceWidthIn, knownReferenceHeightIn, targetPixelSize = null) {
   const confidence = Math.max(0, Math.min(1, numeric(aiResult.confidence) ?? 0));
   const referenceDetected = aiResult.reference_detected === true;
@@ -434,7 +461,7 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, expectedOpenin
 
   if (scanCropApplied && targetPixelSize) {
     const localMeasurement = await detectMarkerScaleLocally(imageUrl, targetPixelSize);
-    if (localMeasurement) {
+    if (localMeasurement && isPlausibleLocalOpeningMeasurement(localMeasurement, expectedOpeningType)) {
       return {
         meta: {
           version: 'blackbriar-v2.1-local-marker',
@@ -542,7 +569,10 @@ export async function analyzeWindowPhoto({ photoUri, base64Image, expectedOpenin
     const data = await response.json();
     const content = data?.choices?.[0]?.message?.content;
     const aiResult = extractJsonObject(content);
-    const measured = buildMeasuredFields(aiResult, knownReferenceWidthIn, knownReferenceHeightIn, targetPixelSize);
+    const measured = applyOpeningPlausibility(
+      buildMeasuredFields(aiResult, knownReferenceWidthIn, knownReferenceHeightIn, targetPixelSize),
+      expectedOpeningType
+    );
 
     return {
       meta: {
