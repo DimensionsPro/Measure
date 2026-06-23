@@ -2674,7 +2674,7 @@ function renderStep(step, ctx) {
               {(opening.photoDataUri || opening.photoUri) ? (
                 <View style={styles.scanBoxTools}>
                   <Text style={styles.scanBoxToolsTitle}>Window box</Text>
-                  <Text style={styles.scanBoxToolsText}>Tap the photo and drag the box around the exact window or section, keeping the marker card inside the box.</Text>
+                  <Text style={styles.scanBoxToolsText}>Tap the photo and drag the box so its edges touch the full window/opening you want measured. Keep the marker card inside the box.</Text>
                   <View style={styles.scanActionRow}>
                     <TouchableOpacity
                       style={[styles.btn, styles.btnGhost]}
@@ -2757,7 +2757,7 @@ function renderStep(step, ctx) {
                           <Text style={styles.btnText}>Done</Text>
                         </TouchableOpacity>
                       </View>
-                      <Text style={styles.photoModalHint}>Keep the marker card inside the box. Drag an edge or corner around the window; drag inside the box to move it.</Text>
+                      <Text style={styles.photoModalHint}>Put the box edges on the full window/opening you want measured. Keep the marker card inside the box.</Text>
                     </View>
                   </View>
                 </Modal>
